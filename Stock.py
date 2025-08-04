@@ -1,8 +1,6 @@
-import sys
 import streamlit as st
 import pandas as pd
 import numpy as np
-import calendar
 from io import BytesIO
 import math
 from google.oauth2 import service_account
@@ -13,7 +11,7 @@ import io
 import os
 
 # Konfigurasi awal halaman Streamlit
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Sparrow Stock Analysis")
 
 # --- SIDEBAR ---
 st.sidebar.image("https://storage.googleapis.com/gemini-prod/images/19efd01d-1377-4208-bab7-349d4d104044", use_column_width=True)
@@ -26,7 +24,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 0.0.3")
+st.sidebar.info("User: John Doe\n\nVersion: 1.0.0")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -42,22 +40,35 @@ if 'df_stock' not in st.session_state:
 
 # --- KONEKSI GOOGLE DRIVE ---
 SCOPES = ['https://www.googleapis.com/auth/drive']
+DRIVE_AVAILABLE = False
 try:
-    cred_path = "credentials.json"
-    if not os.path.exists(cred_path):
-        st.error("File 'credentials.json' tidak ditemukan.")
-        st.stop()
-    credentials = service_account.Credentials.from_service_account_file(cred_path, scopes=SCOPES)
+    # FIXED: Coba muat dari Streamlit Secrets terlebih dahulu (untuk deployment)
+    if st.secrets.has_key("gcp_service_account"):
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], scopes=SCOPES
+        )
+        st.sidebar.success("Berhasil terhubung ke Google Drive via Secrets.", icon="☁️")
+    # Jika gagal (misalnya saat dijalankan lokal), gunakan file credentials.json
+    elif os.path.exists("credentials.json"):
+        credentials = service_account.Credentials.from_service_account_file(
+            'credentials.json', scopes=SCOPES
+        )
+        st.sidebar.success("Berhasil terhubung ke Google Drive via file lokal.", icon="💻")
+    else:
+        st.sidebar.error("Kredensial Google Drive tidak ditemukan.")
+        credentials = None
 
-    drive_service = build('drive', 'v3', credentials=credentials)
-    folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
-    folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
-    folder_stock = "1PMeH_wvgRUnyiZyZ_wrmKAATX9JyWzq_"
-    folder_hasil_analisis = "1TE4a8IegbWDKoVeLPG_oCbuU-qnhd1jE"
-    DRIVE_AVAILABLE = True
+    if credentials:
+        drive_service = build('drive', 'v3', credentials=credentials)
+        folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
+        folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
+        folder_stock = "1PMeH_wvgRUnyiZyZ_wrmKAATX9JyWzq_"
+        folder_hasil_analisis = "1TE4a8IegbWDKoVeLPG_oCbuU-qnhd1jE"
+        DRIVE_AVAILABLE = True
+
 except Exception as e:
-    st.error(f"Gagal terhubung ke Google Drive. Pastikan file 'credentials.json' ada dan valid. Error: {e}")
-    DRIVE_AVAILABLE = False
+    st.sidebar.error(f"Gagal terhubung ke Google Drive.")
+    st.error(f"Detail Error: {e}")
 
 
 @st.cache_data(ttl=600)
@@ -80,12 +91,6 @@ def download_file_from_gdrive(file_id):
 def download_and_read(file_id, file_name, **kwargs):
     fh = download_file_from_gdrive(file_id)
     return pd.read_csv(fh, **kwargs) if file_name.endswith('.csv') else pd.read_excel(fh, **kwargs)
-
-def upload_hasil_ke_shared_drive(folder_id, file_data, file_name):
-    file_metadata = {'name': file_name, 'parents': [folder_id]}
-    media = MediaIoBaseUpload(file_data, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', resumable=True)
-    file = drive_service.files().create(body=file_metadata, media_body=media, fields='id', supportsAllDrives=True).execute()
-    return file.get('id')
 
 def read_produk_file(file_id):
     fh = download_file_from_gdrive(file_id)
@@ -128,6 +133,7 @@ if page == "Input Data":
     st.markdown("Muat data yang diperlukan dari Google Drive. Data hanya akan dimuat sekali per sesi.")
 
     if not DRIVE_AVAILABLE:
+        st.warning("Tidak dapat melanjutkan karena koneksi ke Google Drive gagal. Periksa log di sidebar.")
         st.stop()
 
     # --- Penjualan (Otomatis) ---
@@ -314,7 +320,6 @@ elif page == "Hasil Analisa Stock":
             styled_df = city_df[display_cols_city].style.apply(lambda x: x.map(highlight_kategori), subset=['Kategori ABC']).apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
             st.dataframe(styled_df, use_container_width=True)
             
-    # FIXED: Tabel Gabungan Seluruh Kota untuk Analisis Stok
     st.header("📊 Tabel Gabungan Seluruh Kota (Stock)")
     with st.spinner("Membuat tabel pivot gabungan untuk stok..."):
         keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
@@ -339,7 +344,6 @@ elif page == "Hasil Analisa Stock":
             All_Suggested_PO=('Suggested PO', 'sum')
         ).reset_index()
         
-        # Prepare data for global ABC classification
         all_sales_for_abc = total_agg.copy()
         all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
         all_sales_for_abc['City'] = 'All'
@@ -361,7 +365,6 @@ elif page == "Hasil Analisa Stock":
 elif page == "Hasil Analisa ABC":
     st.title("📊 Analisis ABC Berdasarkan Metrik Penjualan Dinamis")
     
-    # --- FUNGSI-FUNGSI SPESIFIK ANALISA ABC ---
     def classify_abc_dynamic(df_grouped, metric_col='Metrik_Penjualan'):
         abc_results = []
         for city, city_group in df_grouped.groupby('City'):
@@ -463,7 +466,6 @@ elif page == "Hasil Analisa ABC":
             df_city_display = df_city[display_cols_order]
             st.dataframe(df_city_display.style.format({'Metrik_Penjualan': '{:.2f}', '% kontribusi': '{:.2f}%', '% Kumulatif': '{:.2f}%'}).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), use_container_width=True)
 
-    # ADDED: Tabel Gabungan Seluruh Kota untuk Analisis ABC
     st.header("📊 Tabel Gabungan Seluruh Kota (ABC)")
     with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
         keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
@@ -473,7 +475,7 @@ elif page == "Hasil Analisa ABC":
         pivot_abc.reset_index(inplace=True)
         
         total_abc = result.groupby(keys).agg(Total_Metrik=('Metrik_Penjualan', 'sum')).reset_index()
-        total_abc['City'] = 'All' # Dummy city for global classification
+        total_abc['City'] = 'All' 
         total_abc_classified = classify_abc_dynamic(total_abc.rename(columns={'Total_Metrik': 'Metrik_Penjualan'}), metric_col='Metrik_Penjualan')
         total_abc_classified.rename(columns={'Kategori ABC': 'All_Kategori_ABC', '% kontribusi': 'All_%_Kontribusi'}, inplace=True)
         
