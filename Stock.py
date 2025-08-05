@@ -27,7 +27,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.4.1")
+st.sidebar.info("User: John Doe\n\nVersion: 1.4.2")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -104,7 +104,6 @@ def download_and_read(file_id, file_name, **kwargs):
 def read_produk_file(file_id):
     fh = download_file_from_gdrive(file_id)
     df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3])
-    # FIXED: Menstandarkan nama kolom langsung saat membaca file
     df.columns = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
     return df
 
@@ -322,7 +321,40 @@ elif page == "Hasil Analisa Stock":
                 final_result['ROP'] = final_result.apply(lambda row: calculate_rop(row['Min Stock'], row['Safety Stock']), axis=1)
                 final_result['Max Stock'] = final_result.apply(lambda row: calculate_max_stock(row['AVG WMA'], row['Kategori ABC']), axis=1)
 
-                # ... (sisa kode integrasi stok)
+                prefix_to_city = {'A - ITC': 'Surabaya','AT - TRANSIT ITC': 'Surabaya','B': 'Jakarta','BT - TRANSIT JKT': 'Jakarta','C': 'Surabaya','C6': 'Surabaya','CT - TRANSIT PUSAT': 'Surabaya','D - SMG': 'Semarang','DT - TRANSIT SMG': 'Semarang','E - JOG': 'Jogja','ET - TRANSIT JOG': 'Jogja','F - MLG': 'Malang','FT - TRANSIT MLG': 'Malang','H - BALI': 'Bali','HT - TRANSIT BALI': 'Bali','Y - SBY': 'Surabaya','Y3 - Display Y': 'Surabaya','YT - TRANSIT Y': 'Surabaya'}
+                stock_df_raw = df_stock.rename(columns=lambda x: x.strip())
+                stok_columns = [col for col in stock_df_raw.columns if col not in ['No. Barang', 'Keterangan Barang']]
+                
+                stock_melted_list = []
+                for city_name, prefixes in {'Surabaya': ['A - ITC', 'AT - TRANSIT ITC', 'C', 'C6', 'CT - TRANSIT PUSAT', 'Y - SBY', 'Y3 - Display Y', 'YT - TRANSIT Y'], 'Jakarta': ['B', 'BT - TRANSIT JKT'], 'Semarang': ['D - SMG', 'DT - TRANSIT SMG'], 'Jogja': ['E - JOG', 'ET - TRANSIT JOG'], 'Malang': ['F - MLG', 'FT - TRANSIT MLG'], 'Bali': ['H - BALI', 'HT - TRANSIT BALI']}.items():
+                    city_cols = [col for col in stok_columns if any(col.startswith(p) for p in prefixes)]
+                    city_stock = stock_df_raw[['No. Barang'] + city_cols].copy()
+                    city_stock['Stock'] = city_stock[city_cols].sum(axis=1)
+                    city_stock['City'] = city_name
+                    stock_melted_list.append(city_stock[['No. Barang', 'City', 'Stock']])
+
+                stock_melted = pd.concat(stock_melted_list, ignore_index=True)
+
+                final_result = pd.merge(final_result, stock_melted, on=['City', 'No. Barang'], how='left').rename(columns={'Stock': 'Stock Cabang'})
+                final_result['Stock Cabang'].fillna(0, inplace=True)
+                final_result['Status Stock'] = final_result.apply(get_status_stock, axis=1)
+                final_result['Add Stock'] = final_result.apply(lambda row: max(0, row['ROP'] - row['Stock Cabang']), axis=1)
+
+                stock_surabaya = stock_melted[stock_melted['City'] == 'Surabaya'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
+                stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
+                so_total = final_result.groupby('No. Barang')['AVG WMA'].sum().reset_index().rename(columns={'AVG WMA': 'SO Total'})
+                
+                final_result = final_result.merge(stock_surabaya, on='No. Barang', how='left')
+                final_result = final_result.merge(stock_total, on='No. Barang', how='left')
+                final_result = final_result.merge(so_total, on='No. Barang', how='left')
+                final_result.fillna(0, inplace=True)
+                
+                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang(row['Stock Surabaya'], row['Add Stock'], row['Stock Cabang'], row['AVG WMA'], row['Stock Total'], row['SO Total']), axis=1)
+                
+                numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO Total', 'AVG WMA']
+                for col in numeric_cols:
+                    final_result[col] = final_result[col].round(0).astype(int)
+                
                 st.session_state.stock_analysis_result = final_result.copy()
                 st.success("Analisis Stok berhasil dijalankan!")
 
