@@ -26,7 +26,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.2.2")
+st.sidebar.info("User: John Doe\n\nVersion: 1.2.1")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -56,7 +56,7 @@ try:
         credentials = service_account.Credentials.from_service_account_file(
             'credentials.json', scopes=SCOPES
         )
-        st.sidebar.success("Berhasil terhubung ke Google Drive via file lokal.", icon="💻")
+        st.sidebar.success("Berhasil terhubung ke Google Drive via file lokal.", icon="�")
     else:
         st.sidebar.error("Kredensial Google Drive tidak ditemukan.")
         credentials = None
@@ -254,10 +254,6 @@ elif page == "Hasil Analisa Stock":
     def highlight_status_stock(val):
         colors = {'Understock': 'background-color: #fff3b0', 'Balance': 'background-color: #b6e4b6', 'Overstock no D': 'background-color: #ffd6a5', 'Overstock D': 'background-color: #f4bbbb'}
         return colors.get(val, '')
-    def highlight_restock(val):
-        if val == 'PO':
-            return 'background-color: #add8e6' # Biru Muda
-        return ''
     def calculate_max_stock(avg_wma, category):
         multiplier = {'A': 2, 'B': 1, 'C': 0.5, 'D': 0}
         return avg_wma * multiplier.get(category, 0)
@@ -414,17 +410,8 @@ elif page == "Hasil Analisa Stock":
         final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
         final_display_cols = keys + existing_ordered_cols + final_summary_cols
         
-        styler = pivot_result[final_display_cols].style
-        abc_cols = [col for col in final_display_cols if 'Kategori_ABC' in col or 'Kategori ABC All' in col]
-        status_cols = [col for col in final_display_cols if 'Status_Stock' in col]
-
-        styler.apply(lambda s: s.map(lambda val: highlight_kategori(val)), subset=abc_cols)
-        styler.apply(lambda s: s.map(lambda val: highlight_status_stock(val)), subset=status_cols)
-        if 'All_Restock 1 Bulan' in final_display_cols:
-            styler.apply(lambda s: s.map(lambda val: highlight_restock(val)), subset=['All_Restock 1 Bulan'])
-        
-        # FIXED: Menggunakan st.markdown untuk menampilkan tabel yang lebar
-        st.markdown(styler.to_html(), unsafe_allow_html=True)
+        # REVERTED: Menggunakan st.dataframe biasa tanpa pewarnaan
+        st.dataframe(pivot_result[final_display_cols], use_container_width=True)
     
     st.header("💾 Unduh Hasil Analisis Stock")
     output_stock = BytesIO()
@@ -561,12 +548,8 @@ elif page == "Hasil Analisa ABC":
         
         pivot_abc_final = pd.merge(pivot_abc, total_abc_classified[keys + ['All_Kategori_ABC', 'All_%_Kontribusi']], on=keys, how='left')
         
-        styler_abc = pivot_abc_final.style
-        abc_cols_pivot = [col for col in pivot_abc_final.columns if 'Kategori_ABC' in col]
-        styler_abc.apply(lambda s: s.map(lambda val: highlight_kategori_abc(val)), subset=abc_cols_pivot)
-        
-        # FIXED: Menggunakan st.markdown untuk menampilkan tabel yang lebar
-        st.markdown(styler_abc.to_html(), unsafe_allow_html=True)
+        # REVERTED: Menggunakan st.dataframe biasa tanpa pewarnaan
+        st.dataframe(pivot_abc_final, use_container_width=True)
 
 
 elif page == "Dashboard":
@@ -595,3 +578,4 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
+�
