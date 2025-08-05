@@ -140,7 +140,7 @@ if page == "Input Data":
     st.header("1. Data Penjualan")
     if not st.session_state.df_penjualan.empty:
         st.success(f"✅ Data penjualan telah digabungkan dan dimuat secara otomatis.")
-        st.dataframe(st.session_state.df_penjualan.head())
+        st.dataframe(st.session_state.df_penjualan)
     else:
         with st.spinner("Mencari dan menggabungkan semua file penjualan..."):
             penjualan_files_list = list_files_in_folder(drive_service, folder_penjualan)
@@ -510,3 +510,4 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
+
