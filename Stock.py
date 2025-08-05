@@ -11,7 +11,6 @@ import io
 import os
 import re
 from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
 
 # Konfigurasi awal halaman Streamlit
 st.set_page_config(layout="wide", page_title="Sparrow Stock Analysis")
@@ -22,12 +21,12 @@ st.sidebar.title("Sparrow")
 
 page = st.sidebar.radio(
     "Menu Navigasi:",
-    ("Input Data", "Hasil Analisa Stock", "Hasil Analisa ABC"),
+    ("Input Data", "Hasil Analisa Stock", "Hasil Analisa ABC", "Dashboard"),
     help="Pilih halaman untuk ditampilkan."
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.4.1")
+st.sidebar.info("User: John Doe\n\nVersion: 1.3.0")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -104,8 +103,7 @@ def download_and_read(file_id, file_name, **kwargs):
 def read_produk_file(file_id):
     fh = download_file_from_gdrive(file_id)
     df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3])
-    # FIXED: Menggunakan nama kolom asli dari file Excel untuk konsistensi
-    df.columns = ['No. Barang', 'BRAND Barang', 'Nama Kategori Barang Barang', 'Keterangan Barang']
+    df.columns = ['No. Barang', 'BRAND Barang', 'Nama Kategori Barang', 'Keterangan Barang']
     return df
 
 def read_stock_file(file_id):
@@ -274,8 +272,7 @@ elif page == "Hasil Analisa Stock":
     penjualan.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
     penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
     penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
-    # FIXED: Menstandarkan penamaan kolom di awal
-    produk_ref.rename(columns={'Nama Kategori Barang Barang': 'Kategori Barang', 'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
+    produk_ref.rename(columns={'Nama Kategori Barang': 'Kategori Barang', 'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
     penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
 
     st.header("Filter Analisis Stock")
@@ -323,7 +320,40 @@ elif page == "Hasil Analisa Stock":
                 final_result['ROP'] = final_result.apply(lambda row: calculate_rop(row['Min Stock'], row['Safety Stock']), axis=1)
                 final_result['Max Stock'] = final_result.apply(lambda row: calculate_max_stock(row['AVG WMA'], row['Kategori ABC']), axis=1)
 
-                # ... (sisa kode integrasi stok)
+                prefix_to_city = {'A - ITC': 'Surabaya','AT - TRANSIT ITC': 'Surabaya','B': 'Jakarta','BT - TRANSIT JKT': 'Jakarta','C': 'Surabaya','C6': 'Surabaya','CT - TRANSIT PUSAT': 'Surabaya','D - SMG': 'Semarang','DT - TRANSIT SMG': 'Semarang','E - JOG': 'Jogja','ET - TRANSIT JOG': 'Jogja','F - MLG': 'Malang','FT - TRANSIT MLG': 'Malang','H - BALI': 'Bali','HT - TRANSIT BALI': 'Bali','Y - SBY': 'Surabaya','Y3 - Display Y': 'Surabaya','YT - TRANSIT Y': 'Surabaya'}
+                stock_df_raw = df_stock.rename(columns=lambda x: x.strip())
+                stok_columns = [col for col in stock_df_raw.columns if col not in ['No. Barang', 'Keterangan Barang']]
+                
+                stock_melted_list = []
+                for city_name, prefixes in {'Surabaya': ['A - ITC', 'AT - TRANSIT ITC', 'C', 'C6', 'CT - TRANSIT PUSAT', 'Y - SBY', 'Y3 - Display Y', 'YT - TRANSIT Y'], 'Jakarta': ['B', 'BT - TRANSIT JKT'], 'Semarang': ['D - SMG', 'DT - TRANSIT SMG'], 'Jogja': ['E - JOG', 'ET - TRANSIT JOG'], 'Malang': ['F - MLG', 'FT - TRANSIT MLG'], 'Bali': ['H - BALI', 'HT - TRANSIT BALI']}.items():
+                    city_cols = [col for col in stok_columns if any(col.startswith(p) for p in prefixes)]
+                    city_stock = stock_df_raw[['No. Barang'] + city_cols]
+                    city_stock['Stock'] = city_stock[city_cols].sum(axis=1)
+                    city_stock['City'] = city_name
+                    stock_melted_list.append(city_stock[['No. Barang', 'City', 'Stock']])
+
+                stock_melted = pd.concat(stock_melted_list, ignore_index=True)
+
+                final_result = pd.merge(final_result, stock_melted, on=['City', 'No. Barang'], how='left').rename(columns={'Stock': 'Stock Cabang'})
+                final_result['Stock Cabang'].fillna(0, inplace=True)
+                final_result['Status Stock'] = final_result.apply(get_status_stock, axis=1)
+                final_result['Add Stock'] = final_result.apply(lambda row: max(0, row['ROP'] - row['Stock Cabang']), axis=1)
+
+                stock_surabaya = stock_melted[stock_melted['City'] == 'Surabaya'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
+                stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
+                so_total = final_result.groupby('No. Barang')['AVG WMA'].sum().reset_index().rename(columns={'AVG WMA': 'SO Total'})
+                
+                final_result = final_result.merge(stock_surabaya, on='No. Barang', how='left')
+                final_result = final_result.merge(stock_total, on='No. Barang', how='left')
+                final_result = final_result.merge(so_total, on='No. Barang', how='left')
+                final_result.fillna(0, inplace=True)
+                
+                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang(row['Stock Surabaya'], row['Add Stock'], row['Stock Cabang'], row['AVG WMA'], row['Stock Total'], row['SO Total']), axis=1)
+                
+                numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO Total', 'AVG WMA']
+                for col in numeric_cols:
+                    final_result[col] = final_result[col].round(0).astype(int)
+                
                 st.session_state.stock_analysis_result = final_result.copy()
                 st.success("Analisis Stok berhasil dijalankan!")
 
@@ -345,290 +375,226 @@ elif page == "Hasil Analisa Stock":
             final_result_display = final_result_display[final_result_display['Kategori Barang'].isin(selected_kategori)]
         if selected_brand:
             final_result_display = final_result_display[final_result_display['BRAND Barang'].isin(selected_brand)]
-        
-        tab1, tab2 = st.tabs(["Hasil Tabel", "Dashboard"])
 
-        with tab1:
-            st.header("Hasil Analisis Stok per Kota")
+        st.header("Hasil Analisis Stok per Kota")
+        for city in sorted(final_result_display['City'].unique()):
+            with st.expander(f"📍 Lihat Hasil Stok untuk Kota: {city}"):
+                city_df = final_result_display[final_result_display['City'] == city]
+                display_cols_city = ['No. Barang', 'Nama Barang', 'Kategori Barang', 'BRAND Barang', 'Kategori ABC', 'Status Stock', 'AVG WMA', 'Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggested PO']
+                st.dataframe(city_df[display_cols_city], use_container_width=True)
+        
+        st.header("📊 Tabel Gabungan Seluruh Kota (Stock)")
+        with st.spinner("Membuat tabel pivot gabungan untuk stok..."):
+            keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
+            pivot_cols = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock']
+            
+            pivot_result = final_result_display.pivot_table(index=keys, columns='City', values=pivot_cols, aggfunc='first')
+            pivot_result.columns = [f"{level1}_{level0}" for level0, level1 in pivot_result.columns]
+            pivot_result.reset_index(inplace=True)
+
+            cities = sorted(final_result_display['City'].unique())
+            metric_order = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock']
+            ordered_city_cols = [f"{city}_{metric}" for city in cities for metric in metric_order]
+            
+            existing_ordered_cols = [col for col in ordered_city_cols if col in pivot_result.columns]
+            
+            total_agg = final_result_display.groupby(keys).agg(
+                All_Stock=('Stock Cabang', 'sum'), 
+                All_SO=('AVG WMA', 'sum'), 
+                All_Suggested_PO=('Suggested PO', 'sum')
+            ).reset_index()
+            
+            all_sales_for_abc = total_agg.copy()
+            all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
+            all_sales_for_abc['City'] = 'All'
+            
+            all_classified = all_sales_for_abc.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
+            all_classified.rename(columns={'Kategori ABC': 'All_Kategori ABC All'}, inplace=True)
+            
+            total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
+
+            pivot_result = pd.merge(pivot_result, total_agg, on=keys, how='left')
+            pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Kategori ABC All']], on=keys, how='left')
+
+            final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
+            final_display_cols = keys + existing_ordered_cols + final_summary_cols
+            
+            st.dataframe(pivot_result[final_display_cols], use_container_width=True)
+        
+        st.header("💾 Unduh Hasil Analisis Stock")
+        output_stock = BytesIO()
+        with pd.ExcelWriter(output_stock, engine='openpyxl') as writer:
+            pivot_result[final_display_cols].to_excel(writer, sheet_name="All Cities Pivot", index=False)
             for city in sorted(final_result_display['City'].unique()):
-                with st.expander(f"📍 Lihat Hasil Stok untuk Kota: {city}"):
-                    city_df = final_result_display[final_result_display['City'] == city]
-                    display_cols_city = ['No. Barang', 'Nama Barang', 'Kategori Barang', 'BRAND Barang', 'Kategori ABC', 'Status Stock', 'AVG WMA', 'Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggested PO']
-                    st.dataframe(city_df[display_cols_city], use_container_width=True)
-            
-            st.header("📊 Tabel Gabungan Seluruh Kota (Stock)")
-            with st.spinner("Membuat tabel pivot gabungan untuk stok..."):
-                keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
-                pivot_cols = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock']
-                
-                pivot_result = final_result_display.pivot_table(index=keys, columns='City', values=pivot_cols, aggfunc='first')
-                pivot_result.columns = [f"{level1}_{level0}" for level0, level1 in pivot_result.columns]
-                pivot_result.reset_index(inplace=True)
-
-                cities = sorted(final_result_display['City'].unique())
-                metric_order = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock']
-                ordered_city_cols = [f"{city}_{metric}" for city in cities for metric in metric_order]
-                
-                existing_ordered_cols = [col for col in ordered_city_cols if col in pivot_result.columns]
-                
-                total_agg = final_result_display.groupby(keys).agg(
-                    All_Stock=('Stock Cabang', 'sum'), 
-                    All_SO=('AVG WMA', 'sum'), 
-                    All_Suggested_PO=('Suggested PO', 'sum')
-                ).reset_index()
-                
-                all_sales_for_abc = total_agg.copy()
-                all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
-                all_sales_for_abc['City'] = 'All'
-                
-                all_classified = all_sales_for_abc.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
-                all_classified.rename(columns={'Kategori ABC': 'All_Kategori ABC All'}, inplace=True)
-                
-                total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
-
-                pivot_result = pd.merge(pivot_result, total_agg, on=keys, how='left')
-                pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Kategori ABC All']], on=keys, how='left')
-
-                final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
-                final_display_cols = keys + existing_ordered_cols + final_summary_cols
-                
-                st.dataframe(pivot_result[final_display_cols], use_container_width=True)
-            
-            st.header("💾 Unduh Hasil Analisis Stock")
-            output_stock = BytesIO()
-            with pd.ExcelWriter(output_stock, engine='openpyxl') as writer:
-                pivot_result[final_display_cols].to_excel(writer, sheet_name="All Cities Pivot", index=False)
-                for city in sorted(final_result_display['City'].unique()):
-                    sheet_name = city[:31]
-                    final_result_display[final_result_display['City'] == city].to_excel(writer, sheet_name=sheet_name, index=False)
-            
-            st.download_button(
-                "📥 Unduh Hasil Analisis Stock (Excel)",
-                data=output_stock.getvalue(),
-                file_name=f"Hasil_Analisis_Stock_{start_date}_sd_{end_date}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                sheet_name = city[:31]
+                final_result_display[final_result_display['City'] == city].to_excel(writer, sheet_name=sheet_name, index=False)
         
-        with tab2:
-            st.header("📈 Dashboard Analisis Stock")
-            if not final_result_display.empty:
-                # Metrik Utama
-                total_understock = final_result_display[final_result_display['Status Stock'] == 'Understock'].shape[0]
-                total_overstock = final_result_display[final_result_display['Status Stock'].str.contains('Overstock')].shape[0]
-                
-                col1, col2 = st.columns(2)
-                col1.metric("Total Produk Understock", f"{total_understock} SKU")
-                col2.metric("Total Produk Overstock", f"{total_overstock} SKU")
-
-                st.markdown("---")
-                
-                col_chart1, col_chart2 = st.columns(2)
-                with col_chart1:
-                    st.subheader("Distribusi Kategori ABC")
-                    abc_counts = final_result_display['Kategori ABC'].value_counts()
-                    st.bar_chart(abc_counts)
-
-                with col_chart2:
-                    st.subheader("Distribusi Status Stok")
-                    status_counts = final_result_display['Status Stock'].value_counts()
-                    st.bar_chart(status_counts)
-                
-                st.markdown("---")
-                
-                col_top1, col_top2 = st.columns(2)
-                with col_top1:
-                    st.subheader("Top 5 Produk Paling Understock")
-                    top_understock = final_result_display[final_result_display['Status Stock'] == 'Understock'].sort_values(by='Add Stock', ascending=False).head(5)
-                    st.dataframe(top_understock[['Nama Barang', 'City', 'Add Stock', 'Stock Cabang', 'ROP']], use_container_width=True)
-
-                with col_top2:
-                    st.subheader("Top 5 Produk Paling Overstock")
-                    overstock_df = final_result_display[final_result_display['Status Stock'].str.contains('Overstock')].copy()
-                    overstock_df['Kelebihan Stok'] = overstock_df['Stock Cabang'] - overstock_df['Max Stock']
-                    top_overstock = overstock_df.sort_values(by='Kelebihan Stok', ascending=False).head(5)
-                    st.dataframe(top_overstock[['Nama Barang', 'City', 'Kelebihan Stok', 'Stock Cabang', 'Max Stock']], use_container_width=True)
-            else:
-                st.info("Tidak ada data untuk ditampilkan di dashboard. Sesuaikan filter Anda.")
-
+        st.download_button(
+            "📥 Unduh Hasil Analisis Stock (Excel)",
+            data=output_stock.getvalue(),
+            file_name=f"Hasil_Analisis_Stock_{start_date}_sd_{end_date}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 elif page == "Hasil Analisa ABC":
     st.title("📊 Analisis ABC Berdasarkan Metrik Penjualan Dinamis")
     
-    tab1_abc, tab2_abc = st.tabs(["Hasil Tabel", "Dashboard"])
+    def classify_abc_dynamic(df_grouped, metric_col='Metrik_Penjualan'):
+        abc_results = []
+        for city, city_group in df_grouped.groupby('City'):
+            group = city_group.sort_values(by=metric_col, ascending=False).reset_index(drop=True)
+            terjual = group[group[metric_col] > 0].copy()
+            tidak_terjual = group[group[metric_col] <= 0].copy()
+            total_metric = terjual[metric_col].sum()
+            if total_metric == 0:
+                terjual['% kontribusi'] = 0; terjual['% Kumulatif'] = 0; terjual['Kategori ABC'] = 'D'
+            else:
+                terjual['% kontribusi'] = 100 * terjual[metric_col] / total_metric
+                terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
+                terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
+            tidak_terjual['% kontribusi'] = 0; tidak_terjual['% Kumulatif'] = 0; tidak_terjual['Kategori ABC'] = 'D'
+            result = pd.concat([terjual, tidak_terjual], ignore_index=True)
+            abc_results.append(result)
+        return pd.concat(abc_results, ignore_index=True) if abc_results else pd.DataFrame()
 
-    with tab1_abc:
-        def classify_abc_dynamic(df_grouped, metric_col='Metrik_Penjualan'):
-            abc_results = []
-            for city, city_group in df_grouped.groupby('City'):
-                group = city_group.sort_values(by=metric_col, ascending=False).reset_index(drop=True)
-                terjual = group[group[metric_col] > 0].copy()
-                tidak_terjual = group[group[metric_col] <= 0].copy()
-                total_metric = terjual[metric_col].sum()
-                if total_metric == 0:
-                    terjual['% kontribusi'] = 0; terjual['% Kumulatif'] = 0; terjual['Kategori ABC'] = 'D'
-                else:
-                    terjual['% kontribusi'] = 100 * terjual[metric_col] / total_metric
-                    terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
-                    terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
-                tidak_terjual['% kontribusi'] = 0; tidak_terjual['% Kumulatif'] = 0; tidak_terjual['Kategori ABC'] = 'D'
-                result = pd.concat([terjual, tidak_terjual], ignore_index=True)
-                abc_results.append(result)
-            return pd.concat(abc_results, ignore_index=True) if abc_results else pd.DataFrame()
+    def highlight_kategori_abc(val):
+        warna = {'A': 'background-color: #b6e4b6', 'B': 'background-color: #fff3b0', 'C': 'background-color: #ffd6a5', 'D': 'background-color: #f4bbbb'}
+        return warna.get(val, '')
 
-        def highlight_kategori_abc(val):
-            warna = {'A': 'background-color: #b6e4b6', 'B': 'background-color: #fff3b0', 'C': 'background-color: #ffd6a5', 'D': 'background-color: #f4bbbb'}
-            return warna.get(val, '')
+    if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
+        st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
+        st.stop()
 
-        if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
-            st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
-            st.stop()
+    all_so_df = st.session_state.df_penjualan.copy()
+    produk_ref = st.session_state.produk_ref.copy()
+    
+    so_df = all_so_df.copy()
+    so_df.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
+    so_df['Nama Dept'] = so_df.apply(map_nama_dept, axis=1)
+    so_df['City'] = so_df['Nama Dept'].apply(map_city)
+    so_df['Tgl Faktur'] = pd.to_datetime(so_df['Tgl Faktur'], dayfirst=True, errors='coerce')
+    so_df.dropna(subset=['Tgl Faktur'], inplace=True)
+    
+    st.header("Filter Rentang Waktu Analisis ABC")
+    today = datetime.now().date()
+    date_option = st.selectbox(
+        "Pilih Rentang Waktu:",
+        ("7 Hari Terakhir", "30 Hari Terakhir", "90 Hari Terakhir", "Custom")
+    )
 
-        all_so_df = st.session_state.df_penjualan.copy()
-        produk_ref = st.session_state.produk_ref.copy()
+    if date_option == "7 Hari Terakhir":
+        start_date, end_date = today - timedelta(days=6), today
+    elif date_option == "30 Hari Terakhir":
+        start_date, end_date = today - timedelta(days=29), today
+    elif date_option == "90 Hari Terakhir":
+        start_date, end_date = today - timedelta(days=89), today
+    else: # Custom
+        col1, col2 = st.columns(2)
+        start_date = col1.date_input("Tanggal Awal", value=today - timedelta(days=29))
+        end_date = col2.date_input("Tanggal Akhir", value=today)
+
+    if st.button("Jalankan Analisa ABC"):
+        with st.spinner("Melakukan perhitungan analisis ABC..."):
+            mask = (so_df['Tgl Faktur'].dt.date >= start_date) & (so_df['Tgl Faktur'].dt.date <= end_date)
+            so_df_filtered = so_df.loc[mask].copy()
+
+            produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang', 'Nama Kategori Barang': 'Kategori Barang'}, inplace=True, errors='ignore')
+            barang_list = produk_ref[['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']].drop_duplicates()
+            
+            city_list = so_df_filtered['City'].dropna().unique()
+            kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
+            kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
+            
+            agg_so = so_df_filtered.groupby(['City', 'No. Barang'])['Kuantitas'].sum().reset_index(name='Metrik_Penjualan')
+
+            grouped = pd.merge(kombinasi, agg_so, on=['City', 'No. Barang'], how='left')
+            grouped['Metrik_Penjualan'] = grouped['Metrik_Penjualan'].fillna(0)
+
+            result = classify_abc_dynamic(grouped, metric_col='Metrik_Penjualan')
+            st.session_state.abc_analysis_result = result.copy()
+            st.success("Analisis ABC berhasil dijalankan!")
+
+    if st.session_state.abc_analysis_result is not None:
+        result_display = st.session_state.abc_analysis_result.copy()
+        result_display = result_display[result_display['City'] != 'Others']
         
-        so_df = all_so_df.copy()
-        so_df.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
-        so_df['Nama Dept'] = so_df.apply(map_nama_dept, axis=1)
-        so_df['City'] = so_df['Nama Dept'].apply(map_city)
-        so_df['Tgl Faktur'] = pd.to_datetime(so_df['Tgl Faktur'], dayfirst=True, errors='coerce')
-        so_df.dropna(subset=['Tgl Faktur'], inplace=True)
+        st.header("Filter Hasil Analisis")
+        col_f1, col_f2 = st.columns(2)
         
-        st.header("Filter Rentang Waktu Analisis ABC")
-        today = datetime.now().date()
-        date_option = st.selectbox(
-            "Pilih Rentang Waktu:",
-            ("7 Hari Terakhir", "30 Hari Terakhir", "90 Hari Terakhir", "Custom")
+        kategori_options_abc = sorted(produk_ref['Kategori Barang'].dropna().unique())
+        selected_kategori_abc = col_f1.multiselect("Filter berdasarkan Kategori:", kategori_options_abc, key="abc_cat_filter")
+        
+        brand_options_abc = sorted(produk_ref['BRAND Barang'].dropna().unique())
+        selected_brand_abc = col_f2.multiselect("Filter berdasarkan Brand:", brand_options_abc, key="abc_brand_filter")
+
+        if selected_kategori_abc:
+            result_display = result_display[result_display['Kategori Barang'].isin(selected_kategori_abc)]
+        if selected_brand_abc:
+            result_display = result_display[result_display['BRAND Barang'].isin(selected_brand_abc)]
+
+        st.header("Hasil Analisis ABC per Kota")
+        for city in sorted(result_display['City'].unique()):
+            with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
+                city_df = result_display[result_display['City'] == city]
+                display_cols_order = ['No. Barang', 'BRAND Barang', 'Nama Barang', 'Kategori Barang', 'Metrik_Penjualan', 'Kategori ABC', '% kontribusi', '% Kumulatif']
+                df_city_display = city_df[display_cols_order]
+                st.dataframe(df_city_display.style.format({'Metrik_Penjualan': '{:.2f}', '% kontribusi': '{:.2f}%', '% Kumulatif': '{:.2f}%'}).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), use_container_width=True)
+
+        st.header("📊 Tabel Gabungan Seluruh Kota (ABC)")
+        with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
+            keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
+            
+            pivot_abc = result_display.pivot_table(index=keys, columns='City', values=['Metrik_Penjualan', 'Kategori ABC'], aggfunc={'Metrik_Penjualan': 'sum', 'Kategori ABC': 'first'})
+            pivot_abc.columns = [f"{level1}_{level0}" for level0, level1 in pivot_abc.columns]
+            pivot_abc.reset_index(inplace=True)
+            
+            total_abc = result_display.groupby(keys).agg(Total_Metrik=('Metrik_Penjualan', 'sum')).reset_index()
+            total_abc['City'] = 'All' 
+            total_abc_classified = classify_abc_dynamic(total_abc.rename(columns={'Total_Metrik': 'Metrik_Penjualan'}), metric_col='Metrik_Penjualan')
+            total_abc_classified.rename(columns={'Kategori ABC': 'All_Kategori_ABC', '% kontribusi': 'All_%_Kontribusi'}, inplace=True)
+            
+            pivot_abc_final = pd.merge(pivot_abc, total_abc_classified[keys + ['All_Kategori_ABC', 'All_%_Kontribusi']], on=keys, how='left')
+            
+            st.dataframe(pivot_abc_final, use_container_width=True)
+        
+        st.header("💾 Unduh Hasil Analisis ABC")
+        output_abc = BytesIO()
+        with pd.ExcelWriter(output_abc, engine='openpyxl') as writer:
+            pivot_abc_final.to_excel(writer, sheet_name="All Cities Pivot", index=False)
+            for city in sorted(result_display['City'].unique()):
+                sheet_name = city[:31]
+                result_display[result_display['City'] == city].to_excel(writer, sheet_name=sheet_name, index=False)
+        
+        st.download_button(
+            "📥 Unduh Hasil Analisis ABC (Excel)",
+            data=output_abc.getvalue(),
+            file_name=f"Hasil_Analisis_ABC_{start_date}_sd_{end_date}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        if date_option == "7 Hari Terakhir":
-            start_date, end_date = today - timedelta(days=6), today
-        elif date_option == "30 Hari Terakhir":
-            start_date, end_date = today - timedelta(days=29), today
-        elif date_option == "90 Hari Terakhir":
-            start_date, end_date = today - timedelta(days=89), today
-        else: # Custom
-            col1, col2 = st.columns(2)
-            start_date = col1.date_input("Tanggal Awal", value=today - timedelta(days=29))
-            end_date = col2.date_input("Tanggal Akhir", value=today)
+elif page == "Dashboard":
+    st.title("📈 Dashboard")
+    st.markdown("Tampilan ringkasan metrik dan visualisasi data penting.")
+    
+    st.markdown("---")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric(label="Documents", value="10.5K", delta="125")
+    col2.metric(label="Annotations", value="510", delta="-2")
+    col3.metric(label="Accuracy", value="87.9%", delta="0.1%")
+    col4.metric(label="Training Time", value="1.5 hours", delta="10 mins")
+    col5.metric(label="Processing Time", value="3 seconds", delta="-0.1 seconds")
+    st.markdown("---")
 
-        if st.button("Jalankan Analisa ABC"):
-            with st.spinner("Melakukan perhitungan analisis ABC..."):
-                mask = (so_df['Tgl Faktur'].dt.date >= start_date) & (so_df['Tgl Faktur'].dt.date <= end_date)
-                so_df_filtered = so_df.loc[mask].copy()
+    st.subheader("Data Extraction")
+    chart_data_line = pd.DataFrame(np.random.randn(20, 3), columns=['a', 'b', 'c'])
+    st.line_chart(chart_data_line)
 
-                produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang', 'Nama Kategori Barang': 'Kategori Barang'}, inplace=True, errors='ignore')
-                barang_list = produk_ref[['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']].drop_duplicates()
-                
-                city_list = so_df_filtered['City'].dropna().unique()
-                kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
-                kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
-                
-                agg_so = so_df_filtered.groupby(['City', 'No. Barang'])['Kuantitas'].sum().reset_index(name='Metrik_Penjualan')
-
-                grouped = pd.merge(kombinasi, agg_so, on=['City', 'No. Barang'], how='left')
-                grouped['Metrik_Penjualan'] = grouped['Metrik_Penjualan'].fillna(0)
-
-                result = classify_abc_dynamic(grouped, metric_col='Metrik_Penjualan')
-                st.session_state.abc_analysis_result = result.copy()
-                st.success("Analisis ABC berhasil dijalankan!")
-
-        if st.session_state.abc_analysis_result is not None:
-            result_display = st.session_state.abc_analysis_result.copy()
-            result_display = result_display[result_display['City'] != 'Others']
-            
-            st.header("Filter Hasil Analisis")
-            col_f1, col_f2 = st.columns(2)
-            
-            kategori_options_abc = sorted(produk_ref['Kategori Barang'].dropna().unique())
-            selected_kategori_abc = col_f1.multiselect("Filter berdasarkan Kategori:", kategori_options_abc, key="abc_cat_filter")
-            
-            brand_options_abc = sorted(produk_ref['BRAND Barang'].dropna().unique())
-            selected_brand_abc = col_f2.multiselect("Filter berdasarkan Brand:", brand_options_abc, key="abc_brand_filter")
-
-            if selected_kategori_abc:
-                result_display = result_display[result_display['Kategori Barang'].isin(selected_kategori_abc)]
-            if selected_brand_abc:
-                result_display = result_display[result_display['BRAND Barang'].isin(selected_brand_abc)]
-
-            st.header("Hasil Analisis ABC per Kota")
-            for city in sorted(result_display['City'].unique()):
-                with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
-                    city_df = result_display[result_display['City'] == city]
-                    display_cols_order = ['No. Barang', 'BRAND Barang', 'Nama Barang', 'Kategori Barang', 'Metrik_Penjualan', 'Kategori ABC', '% kontribusi', '% Kumulatif']
-                    df_city_display = city_df[display_cols_order]
-                    st.dataframe(df_city_display.style.format({'Metrik_Penjualan': '{:.2f}', '% kontribusi': '{:.2f}%', '% Kumulatif': '{:.2f}%'}).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), use_container_width=True)
-
-            st.header("📊 Tabel Gabungan Seluruh Kota (ABC)")
-            with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
-                keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
-                
-                pivot_abc = result_display.pivot_table(index=keys, columns='City', values=['Metrik_Penjualan', 'Kategori ABC'], aggfunc={'Metrik_Penjualan': 'sum', 'Kategori ABC': 'first'})
-                pivot_abc.columns = [f"{level1}_{level0}" for level0, level1 in pivot_abc.columns]
-                pivot_abc.reset_index(inplace=True)
-                
-                total_abc = result_display.groupby(keys).agg(Total_Metrik=('Metrik_Penjualan', 'sum')).reset_index()
-                total_abc['City'] = 'All' 
-                total_abc_classified = classify_abc_dynamic(total_abc.rename(columns={'Total_Metrik': 'Metrik_Penjualan'}), metric_col='Metrik_Penjualan')
-                total_abc_classified.rename(columns={'Kategori ABC': 'All_Kategori_ABC', '% kontribusi': 'All_%_Kontribusi'}, inplace=True)
-                
-                pivot_abc_final = pd.merge(pivot_abc, total_abc_classified[keys + ['All_Kategori_ABC', 'All_%_Kontribusi']], on=keys, how='left')
-                
-                st.dataframe(pivot_abc_final, use_container_width=True)
-            
-            st.header("💾 Unduh Hasil Analisis ABC")
-            output_abc = BytesIO()
-            with pd.ExcelWriter(output_abc, engine='openpyxl') as writer:
-                pivot_abc_final.to_excel(writer, sheet_name="All Cities Pivot", index=False)
-                for city in sorted(result_display['City'].unique()):
-                    sheet_name = city[:31]
-                    result_display[result_display['City'] == city].to_excel(writer, sheet_name=sheet_name, index=False)
-            
-            st.download_button(
-                "📥 Unduh Hasil Analisis ABC (Excel)",
-                data=output_abc.getvalue(),
-                file_name=f"Hasil_Analisis_ABC_{start_date}_sd_{end_date}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-    with tab2_abc:
-        st.header("📈 Dashboard Analisis ABC")
-        if st.session_state.abc_analysis_result is not None and not result_display.empty:
-            abc_summary = result_display.groupby('Kategori ABC')['Metrik_Penjualan'].agg(['count', 'sum'])
-            abc_summary['sum_perc'] = (abc_summary['sum'] / abc_summary['sum'].sum()) * 100
-
-            st.markdown("---")
-            col1, col2, col3 = st.columns(3)
-            if 'A' in abc_summary.index:
-                col1.metric("Produk Kelas A", f"{abc_summary.loc['A', 'count']} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% Penjualan")
-            if 'B' in abc_summary.index:
-                col2.metric("Produk Kelas B", f"{abc_summary.loc['B', 'count']} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% Penjualan")
-            if 'C' in abc_summary.index:
-                col3.metric("Produk Kelas C", f"{abc_summary.loc['C', 'count']} SKU", f"{abc_summary.loc['C', 'sum_perc']:.1f}% Penjualan")
-            st.markdown("---")
-
-            col_chart1, col_chart2 = st.columns(2)
-            with col_chart1:
-                st.subheader("Komposisi Produk per Kelas ABC")
-                fig1, ax1 = plt.subplots()
-                ax1.pie(abc_summary['count'], labels=abc_summary.index, autopct='%1.1f%%', startangle=90)
-                ax1.axis('equal')
-                st.pyplot(fig1)
-            
-            with col_chart2:
-                st.subheader("Kontribusi Penjualan per Kelas ABC")
-                st.bar_chart(abc_summary[['sum_perc']].rename(columns={'sum_perc': 'Kontribusi Penjualan (%)'}))
-
-            st.markdown("---")
-            
-            col_top1, col_top2 = st.columns(2)
-            with col_top1:
-                st.subheader("Top 10 Produk Terlaris")
-                top_products = result_display.groupby('Nama Barang')['Metrik_Penjualan'].sum().nlargest(10)
-                st.bar_chart(top_products)
-            
-            with col_top2:
-                st.subheader("Performa Penjualan per Kota")
-                city_sales = result_display.groupby('City')['Metrik_Penjualan'].sum().sort_values(ascending=False)
-                st.bar_chart(city_sales)
-        else:
-            st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.subheader("Model Training")
+        chart_data_bar = pd.DataFrame(np.random.randn(20, 3), columns=["Series 1", "Series 2", "Series 3"])
+        st.bar_chart(chart_data_bar)
+    with col_b:
+        st.subheader("Data Annotation")
+        chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
+        st.area_chart(chart_data_area)
