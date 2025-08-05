@@ -56,7 +56,7 @@ try:
         credentials = service_account.Credentials.from_service_account_file(
             'credentials.json', scopes=SCOPES
         )
-        st.sidebar.success("Berhasil terhubung ke Google Drive via file lokal.", icon="�")
+        st.sidebar.success("Berhasil terhubung ke Google Drive via file lokal.", icon="💻")
     else:
         st.sidebar.error("Kredensial Google Drive tidak ditemukan.")
         credentials = None
@@ -414,7 +414,6 @@ elif page == "Hasil Analisa Stock":
         final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
         final_display_cols = keys + existing_ordered_cols + final_summary_cols
         
-        # MODIFIED: Menerapkan pewarnaan pada tabel gabungan
         styler = pivot_result[final_display_cols].style
         abc_cols = [col for col in final_display_cols if 'Kategori_ABC' in col or 'Kategori ABC All' in col]
         status_cols = [col for col in final_display_cols if 'Status_Stock' in col]
@@ -424,7 +423,8 @@ elif page == "Hasil Analisa Stock":
         if 'All_Restock 1 Bulan' in final_display_cols:
             styler.apply(lambda s: s.map(lambda val: highlight_restock(val)), subset=['All_Restock 1 Bulan'])
         
-        st.dataframe(styler, use_container_width=True)
+        # FIXED: Menggunakan st.markdown untuk menampilkan tabel yang lebar
+        st.markdown(styler.to_html(), unsafe_allow_html=True)
     
     st.header("💾 Unduh Hasil Analisis Stock")
     output_stock = BytesIO()
@@ -561,12 +561,12 @@ elif page == "Hasil Analisa ABC":
         
         pivot_abc_final = pd.merge(pivot_abc, total_abc_classified[keys + ['All_Kategori_ABC', 'All_%_Kontribusi']], on=keys, how='left')
         
-        # MODIFIED: Menerapkan pewarnaan pada tabel gabungan ABC
         styler_abc = pivot_abc_final.style
         abc_cols_pivot = [col for col in pivot_abc_final.columns if 'Kategori_ABC' in col]
         styler_abc.apply(lambda s: s.map(lambda val: highlight_kategori_abc(val)), subset=abc_cols_pivot)
         
-        st.dataframe(styler_abc, use_container_width=True)
+        # FIXED: Menggunakan st.markdown untuk menampilkan tabel yang lebar
+        st.markdown(styler_abc.to_html(), unsafe_allow_html=True)
 
 
 elif page == "Dashboard":
