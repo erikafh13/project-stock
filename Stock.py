@@ -595,4 +595,3 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
-�
