@@ -9,6 +9,8 @@ from googleapiclient.http import MediaIoBaseDownload
 from googleapiclient.http import MediaIoBaseUpload
 import io
 import os
+import re
+from datetime import datetime, timedelta
 
 # Konfigurasi awal halaman Streamlit
 st.set_page_config(layout="wide", page_title="Sparrow Stock Analysis")
@@ -24,7 +26,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.1.0")
+st.sidebar.info("User: John Doe\n\nVersion: 1.2.0")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -35,6 +37,9 @@ if 'produk_ref' not in st.session_state:
     st.session_state.produk_ref = pd.DataFrame()
 if 'df_stock' not in st.session_state:
     st.session_state.df_stock = pd.DataFrame()
+if 'stock_filename' not in st.session_state:
+    st.session_state.stock_filename = ""
+
 
 # --------------------------------Fungsi Umum & Google Drive--------------------------------
 
@@ -168,7 +173,7 @@ if page == "Input Data":
 
     st.header("3. Data Stock")
     if not st.session_state.df_stock.empty:
-        st.success("✅ File Stock sudah dimuat.")
+        st.success(f"✅ File Stock sudah dimuat: {st.session_state.stock_filename}")
         st.dataframe(st.session_state.df_stock.head())
     else:
         with st.spinner("Mencari file stock di Google Drive..."):
@@ -182,6 +187,8 @@ if page == "Input Data":
         if selected_stock_file:
             with st.spinner(f"Memuat file {selected_stock_file['name']}..."):
                 st.session_state.df_stock = read_stock_file(selected_stock_file['id'])
+                # Simpan nama file yang dipilih untuk digunakan di halaman lain
+                st.session_state.stock_filename = selected_stock_file['name']
                 st.rerun()
 
 
@@ -191,19 +198,14 @@ elif page == "Hasil Analisa Stock":
     # --- FUNGSI-FUNGSI SPESIFIK ANALISA STOCK ---
     def calculate_daily_wma(group, end_date):
         end_date = pd.to_datetime(end_date)
-        # Tentukan 3 rentang waktu 30 hari
         range1_start = end_date - pd.DateOffset(days=29)
-        range2_start = end_date - pd.DateOffset(days=59)
-        range2_end = end_date - pd.DateOffset(days=30)
-        range3_start = end_date - pd.DateOffset(days=89)
-        range3_end = end_date - pd.DateOffset(days=60)
-
-        # Hitung total penjualan di setiap rentang
+        range2_start = end_date - pd.DateOffset(days=59); range2_end = end_date - pd.DateOffset(days=30)
+        range3_start = end_date - pd.DateOffset(days=89); range3_end = end_date - pd.DateOffset(days=60)
+        
         sales_last_30_days = group[(group['Tgl Faktur'] >= range1_start) & (group['Tgl Faktur'] <= end_date)]['Kuantitas'].sum()
         sales_31_to_60_days = group[(group['Tgl Faktur'] >= range2_start) & (group['Tgl Faktur'] <= range2_end)]['Kuantitas'].sum()
         sales_61_to_90_days = group[(group['Tgl Faktur'] >= range3_start) & (group['Tgl Faktur'] <= range3_end)]['Kuantitas'].sum()
         
-        # Terapkan bobot
         wma = (sales_last_30_days * 0.5) + (sales_31_to_60_days * 0.3) + (sales_61_to_90_days * 0.2)
         return wma
 
@@ -218,7 +220,6 @@ elif page == "Hasil Analisa Stock":
             city_df['Kategori ABC'] = city_df['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
         return city_df
     
-    # ... (sisa fungsi helper tetap sama) ...
     def highlight_kategori(val):
         warna = {'A': 'background-color: #b6e4b6', 'B': 'background-color: #fff3b0', 'C': 'background-color: #ffd6a5', 'D': 'background-color: #f4bbbb'}
         return warna.get(val, '')
@@ -262,12 +263,27 @@ elif page == "Hasil Analisa Stock":
     penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
 
     st.header("Filter Tanggal Analisis Stock")
-    min_date, max_date = penjualan['Tgl Faktur'].dropna().min().date(), penjualan['Tgl Faktur'].dropna().max().date()
-    col1, col2 = st.columns(2)
-    start_date = col1.date_input("Tanggal Awal", value=min_date, min_value=min_date, max_value=max_date, key="stock_start")
-    end_date = col2.date_input("Tanggal Akhir", value=max_date, min_value=start_date, max_value=max_date, key="stock_end")
+    
+    # --- LOGIKA PENENTUAN TANGGAL OTOMATIS ---
+    default_end_date = penjualan['Tgl Faktur'].dropna().max().date()
+    # Coba ekstrak tanggal dari nama file stok
+    if st.session_state.stock_filename:
+        # Cari 8 digit angka (DDMMYYYY)
+        match = re.search(r'(\d{8})', st.session_state.stock_filename)
+        if match:
+            try:
+                # Konversi string tanggal ke objek datetime
+                default_end_date = datetime.strptime(match.group(1), '%d%m%Y').date()
+            except ValueError:
+                # Jika format tidak sesuai, gunakan tanggal maks dari data penjualan
+                pass
+    
+    default_start_date = default_end_date - timedelta(days=89)
 
-    # Filter data penjualan hanya untuk 90 hari terakhir dari end_date untuk WMA
+    col1, col2 = st.columns(2)
+    start_date = col1.date_input("Tanggal Awal", value=default_start_date, key="stock_start")
+    end_date = col2.date_input("Tanggal Akhir", value=default_end_date, key="stock_end")
+
     wma_start_date = pd.to_datetime(end_date) - pd.DateOffset(days=89)
     penjualan_for_wma = penjualan[(penjualan['Tgl Faktur'] >= wma_start_date) & (penjualan['Tgl Faktur'] <= pd.to_datetime(end_date))]
     
@@ -276,7 +292,6 @@ elif page == "Hasil Analisa Stock":
         st.stop()
     
     with st.spinner("Melakukan perhitungan analisis stok..."):
-        # --- PERHITUNGAN WMA BARU ---
         wma_grouped = penjualan_for_wma.groupby(['City', 'No. Barang']).apply(calculate_daily_wma, end_date=end_date).reset_index(name='AVG WMA')
 
         barang_list = produk_ref[['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']].drop_duplicates()
@@ -290,12 +305,10 @@ elif page == "Hasil Analisa Stock":
         final_result = full_data.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
         
         final_result['Min Stock'] = final_result['AVG WMA'].apply(calculate_min_stock)
-        # Safety stock di-nol-kan sementara karena perhitungannya butuh data bulanan yg tidak lagi dihitung
         final_result['Safety Stock'] = 0 
         final_result['ROP'] = final_result.apply(lambda row: calculate_rop(row['Min Stock'], row['Safety Stock']), axis=1)
         final_result['Max Stock'] = final_result.apply(lambda row: calculate_max_stock(row['AVG WMA'], row['Kategori ABC']), axis=1)
 
-        # ... sisa kode integrasi stok tetap sama ...
         prefix_to_city = {'A - ITC': 'Surabaya','AT - TRANSIT ITC': 'Surabaya','B': 'Jakarta','BT - TRANSIT JKT': 'Jakarta','C': 'Surabaya','C6': 'Surabaya','CT - TRANSIT PUSAT': 'Surabaya','D - SMG': 'Semarang','DT - TRANSIT SMG': 'Semarang','E - JOG': 'Jogja','ET - TRANSIT JOG': 'Jogja','F - MLG': 'Malang','FT - TRANSIT MLG': 'Malang','H - BALI': 'Bali','HT - TRANSIT BALI': 'Bali','Y - SBY': 'Surabaya','Y3 - Display Y': 'Surabaya','YT - TRANSIT Y': 'Surabaya'}
         stock_df_raw = df_stock.rename(columns=lambda x: x.strip())
         stok_columns = [col for col in stock_df_raw.columns if col not in ['No. Barang', 'Keterangan Barang']]
@@ -542,3 +555,4 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
+
