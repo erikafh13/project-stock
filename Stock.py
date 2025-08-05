@@ -26,7 +26,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.2.1")
+st.sidebar.info("User: John Doe\n\nVersion: 1.2.2")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -254,6 +254,10 @@ elif page == "Hasil Analisa Stock":
     def highlight_status_stock(val):
         colors = {'Understock': 'background-color: #fff3b0', 'Balance': 'background-color: #b6e4b6', 'Overstock no D': 'background-color: #ffd6a5', 'Overstock D': 'background-color: #f4bbbb'}
         return colors.get(val, '')
+    def highlight_restock(val):
+        if val == 'PO':
+            return 'background-color: #add8e6' # Biru Muda
+        return ''
     def calculate_max_stock(avg_wma, category):
         multiplier = {'A': 2, 'B': 1, 'C': 0.5, 'D': 0}
         return avg_wma * multiplier.get(category, 0)
@@ -316,7 +320,6 @@ elif page == "Hasil Analisa Stock":
         full_data = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
         full_data = pd.merge(full_data, wma_grouped, on=['City', 'No. Barang'], how='left').fillna(0)
         
-        # --- PERHITUNGAN SAFETY STOCK BARU ---
         penjualan_for_wma['Bulan'] = penjualan_for_wma['Tgl Faktur'].dt.to_period('M')
         monthly_sales = penjualan_for_wma.groupby(['City', 'No. Barang', 'Bulan'])['Kuantitas'].sum().unstack(fill_value=0).reset_index()
         full_data = pd.merge(full_data, monthly_sales, on=['City', 'No. Barang'], how='left').fillna(0)
@@ -331,7 +334,6 @@ elif page == "Hasil Analisa Stock":
         final_result['ROP'] = final_result.apply(lambda row: calculate_rop(row['Min Stock'], row['Safety Stock']), axis=1)
         final_result['Max Stock'] = final_result.apply(lambda row: calculate_max_stock(row['AVG WMA'], row['Kategori ABC']), axis=1)
 
-        # ... sisa kode integrasi stok tetap sama ...
         prefix_to_city = {'A - ITC': 'Surabaya','AT - TRANSIT ITC': 'Surabaya','B': 'Jakarta','BT - TRANSIT JKT': 'Jakarta','C': 'Surabaya','C6': 'Surabaya','CT - TRANSIT PUSAT': 'Surabaya','D - SMG': 'Semarang','DT - TRANSIT SMG': 'Semarang','E - JOG': 'Jogja','ET - TRANSIT JOG': 'Jogja','F - MLG': 'Malang','FT - TRANSIT MLG': 'Malang','H - BALI': 'Bali','HT - TRANSIT BALI': 'Bali','Y - SBY': 'Surabaya','Y3 - Display Y': 'Surabaya','YT - TRANSIT Y': 'Surabaya'}
         stock_df_raw = df_stock.rename(columns=lambda x: x.strip())
         stok_columns = [col for col in stock_df_raw.columns if col not in ['No. Barang', 'Keterangan Barang']]
@@ -412,7 +414,17 @@ elif page == "Hasil Analisa Stock":
         final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
         final_display_cols = keys + existing_ordered_cols + final_summary_cols
         
-        st.dataframe(pivot_result[final_display_cols], use_container_width=True)
+        # MODIFIED: Menerapkan pewarnaan pada tabel gabungan
+        styler = pivot_result[final_display_cols].style
+        abc_cols = [col for col in final_display_cols if 'Kategori_ABC' in col or 'Kategori ABC All' in col]
+        status_cols = [col for col in final_display_cols if 'Status_Stock' in col]
+
+        styler.apply(lambda s: s.map(lambda val: highlight_kategori(val)), subset=abc_cols)
+        styler.apply(lambda s: s.map(lambda val: highlight_status_stock(val)), subset=status_cols)
+        if 'All_Restock 1 Bulan' in final_display_cols:
+            styler.apply(lambda s: s.map(lambda val: highlight_restock(val)), subset=['All_Restock 1 Bulan'])
+        
+        st.dataframe(styler, use_container_width=True)
     
     st.header("💾 Unduh Hasil Analisis Stock")
     output_stock = BytesIO()
@@ -549,7 +561,12 @@ elif page == "Hasil Analisa ABC":
         
         pivot_abc_final = pd.merge(pivot_abc, total_abc_classified[keys + ['All_Kategori_ABC', 'All_%_Kontribusi']], on=keys, how='left')
         
-        st.dataframe(pivot_abc_final, use_container_width=True)
+        # MODIFIED: Menerapkan pewarnaan pada tabel gabungan ABC
+        styler_abc = pivot_abc_final.style
+        abc_cols_pivot = [col for col in pivot_abc_final.columns if 'Kategori_ABC' in col]
+        styler_abc.apply(lambda s: s.map(lambda val: highlight_kategori_abc(val)), subset=abc_cols_pivot)
+        
+        st.dataframe(styler_abc, use_container_width=True)
 
 
 elif page == "Dashboard":
@@ -578,3 +595,4 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
+�
