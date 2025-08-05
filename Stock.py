@@ -361,6 +361,21 @@ elif page == "Hasil Analisa Stock":
         
         st.dataframe(pivot_result[final_display_cols], use_container_width=True)
 
+    # ADDED: Tombol Download untuk Hasil Analisa Stock
+    st.header("💾 Unduh Hasil Analisis Stock")
+    output_stock = BytesIO()
+    with pd.ExcelWriter(output_stock, engine='openpyxl') as writer:
+        pivot_result[final_display_cols].to_excel(writer, sheet_name="All Cities Pivot", index=False)
+        for city in sorted(final_result['City'].unique()):
+            sheet_name = city[:31]
+            final_result[final_result['City'] == city].to_excel(writer, sheet_name=sheet_name, index=False)
+    
+    st.download_button(
+        "📥 Unduh Hasil Analisis Stock (Excel)",
+        data=output_stock.getvalue(),
+        file_name=f"Hasil_Analisis_Stock_{start_date}_sd_{end_date}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 elif page == "Hasil Analisa ABC":
     st.title("📊 Analisis ABC Berdasarkan Metrik Penjualan Dinamis")
@@ -510,4 +525,5 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
+
 
