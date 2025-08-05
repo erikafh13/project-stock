@@ -24,7 +24,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.0.0")
+st.sidebar.info("User: John Doe\n\nVersion: 1.1.0")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -42,13 +42,11 @@ if 'df_stock' not in st.session_state:
 SCOPES = ['https://www.googleapis.com/auth/drive']
 DRIVE_AVAILABLE = False
 try:
-    # FIXED: Coba muat dari Streamlit Secrets terlebih dahulu (untuk deployment)
-    if st.secrets.has_key("gcp_service_account"):
+    if "gcp_service_account" in st.secrets:
         credentials = service_account.Credentials.from_service_account_info(
             st.secrets["gcp_service_account"], scopes=SCOPES
         )
         st.sidebar.success("Berhasil terhubung ke Google Drive via Secrets.", icon="☁️")
-    # Jika gagal (misalnya saat dijalankan lokal), gunakan file credentials.json
     elif os.path.exists("credentials.json"):
         credentials = service_account.Credentials.from_service_account_file(
             'credentials.json', scopes=SCOPES
@@ -136,7 +134,6 @@ if page == "Input Data":
         st.warning("Tidak dapat melanjutkan karena koneksi ke Google Drive gagal. Periksa log di sidebar.")
         st.stop()
 
-    # --- Penjualan (Otomatis) ---
     st.header("1. Data Penjualan")
     if not st.session_state.df_penjualan.empty:
         st.success(f"✅ Data penjualan telah digabungkan dan dimuat secara otomatis.")
@@ -151,7 +148,6 @@ if page == "Input Data":
             else:
                 st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive.")
 
-    # --- Produk Ref (Dengan Slicer) ---
     st.header("2. Produk Referensi")
     if not st.session_state.produk_ref.empty:
         st.success("✅ File Produk Referensi sudah dimuat.")
@@ -170,7 +166,6 @@ if page == "Input Data":
                 st.session_state.produk_ref = read_produk_file(selected_produk_file['id'])
                 st.rerun()
 
-    # --- Stock (Dengan Slicer) ---
     st.header("3. Data Stock")
     if not st.session_state.df_stock.empty:
         st.success("✅ File Stock sudah dimuat.")
@@ -194,7 +189,25 @@ elif page == "Hasil Analisa Stock":
     st.title("🔬 Hasil Analisa Stock")
     
     # --- FUNGSI-FUNGSI SPESIFIK ANALISA STOCK ---
-    def classify_abc_stock(city_df):
+    def calculate_daily_wma(group, end_date):
+        end_date = pd.to_datetime(end_date)
+        # Tentukan 3 rentang waktu 30 hari
+        range1_start = end_date - pd.DateOffset(days=29)
+        range2_start = end_date - pd.DateOffset(days=59)
+        range2_end = end_date - pd.DateOffset(days=30)
+        range3_start = end_date - pd.DateOffset(days=89)
+        range3_end = end_date - pd.DateOffset(days=60)
+
+        # Hitung total penjualan di setiap rentang
+        sales_last_30_days = group[(group['Tgl Faktur'] >= range1_start) & (group['Tgl Faktur'] <= end_date)]['Kuantitas'].sum()
+        sales_31_to_60_days = group[(group['Tgl Faktur'] >= range2_start) & (group['Tgl Faktur'] <= range2_end)]['Kuantitas'].sum()
+        sales_61_to_90_days = group[(group['Tgl Faktur'] >= range3_start) & (group['Tgl Faktur'] <= range3_end)]['Kuantitas'].sum()
+        
+        # Terapkan bobot
+        wma = (sales_last_30_days * 0.5) + (sales_31_to_60_days * 0.3) + (sales_61_to_90_days * 0.2)
+        return wma
+
+    def classify_abc(city_df):
         city_df = city_df.sort_values(by='Total Kuantitas', ascending=False).reset_index(drop=True)
         total = city_df['Total Kuantitas'].sum()
         if total == 0:
@@ -204,30 +217,25 @@ elif page == "Hasil Analisa Stock":
             city_df['% Kumulatif'] = city_df['% kontribusi'].cumsum()
             city_df['Kategori ABC'] = city_df['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
         return city_df
-
+    
+    # ... (sisa fungsi helper tetap sama) ...
     def highlight_kategori(val):
         warna = {'A': 'background-color: #b6e4b6', 'B': 'background-color: #fff3b0', 'C': 'background-color: #ffd6a5', 'D': 'background-color: #f4bbbb'}
         return warna.get(val, '')
-
     def calculate_min_stock(avg_wma): return avg_wma * 0.7
-
     def get_status_stock(row):
         if row['Kategori ABC'] == 'D': return 'Overstock D' if row['Stock Cabang'] > 2 else 'Balance'
         if row['Stock Cabang'] > row['Max Stock']: return 'Overstock no D'
         if row['Stock Cabang'] >= row['ROP']: return 'Balance'
         if row['Stock Cabang'] < row['ROP']: return 'Understock'
         return '-'
-
     def highlight_status_stock(val):
         colors = {'Understock': 'background-color: #fff3b0', 'Balance': 'background-color: #b6e4b6', 'Overstock no D': 'background-color: #ffd6a5', 'Overstock D': 'background-color: #f4bbbb'}
         return colors.get(val, '')
-
     def calculate_max_stock(avg_wma, category):
         multiplier = {'A': 2, 'B': 1, 'C': 0.5, 'D': 0}
         return avg_wma * multiplier.get(category, 0)
-    
     def calculate_rop(min_stock, safety_stock): return min_stock + safety_stock
-
     def hitung_po_cabang(stock_surabaya, add_stock_cabang, stock_cabang, so_cabang, stock_total, so_total):
         try:
             add_stock_cabang_val = 0 if add_stock_cabang == '-' else add_stock_cabang
@@ -245,11 +253,12 @@ elif page == "Hasil Analisa Stock":
     
     penjualan = st.session_state.df_penjualan.copy()
     produk_ref = st.session_state.produk_ref.copy()
-    stock_df_raw = st.session_state.df_stock.copy()
+    df_stock = st.session_state.df_stock.copy()
 
+    penjualan.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
     penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
     penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
-    produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang', 'Nama Kategori Barang': 'Kategori Barang'}, inplace=True, errors='ignore')
+    produk_ref.rename(columns={'Nama Kategori Barang': 'Kategori Barang', 'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
     penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
 
     st.header("Filter Tanggal Analisis Stock")
@@ -258,42 +267,48 @@ elif page == "Hasil Analisa Stock":
     start_date = col1.date_input("Tanggal Awal", value=min_date, min_value=min_date, max_value=max_date, key="stock_start")
     end_date = col2.date_input("Tanggal Akhir", value=max_date, min_value=start_date, max_value=max_date, key="stock_end")
 
-    penjualan = penjualan[(penjualan['Tgl Faktur'] >= pd.to_datetime(start_date)) & (penjualan['Tgl Faktur'] <= pd.to_datetime(end_date))]
-    if penjualan.empty:
-        st.error("Tidak ada data penjualan dalam rentang tanggal yang dipilih.")
+    # Filter data penjualan hanya untuk 90 hari terakhir dari end_date untuk WMA
+    wma_start_date = pd.to_datetime(end_date) - pd.DateOffset(days=89)
+    penjualan_for_wma = penjualan[(penjualan['Tgl Faktur'] >= wma_start_date) & (penjualan['Tgl Faktur'] <= pd.to_datetime(end_date))]
+    
+    if penjualan_for_wma.empty:
+        st.error("Tidak ada data penjualan dalam rentang 90 hari terakhir dari tanggal akhir yang dipilih.")
         st.stop()
     
     with st.spinner("Melakukan perhitungan analisis stok..."):
-        penjualan['Bulan'] = penjualan['Tgl Faktur'].dt.to_period('M')
-        bulan_unik = sorted(penjualan['Bulan'].unique(), reverse=True)[:3]
-        bobot_dict = {bulan: [0.5, 0.3, 0.2][i] for i, bulan in enumerate(bulan_unik)}
-        penjualan_wma = penjualan[penjualan['Bulan'].isin(bobot_dict.keys())].copy()
-        penjualan_wma['Bobot'] = penjualan_wma['Bulan'].map(bobot_dict)
-        penjualan_wma['WMA_Kuantitas'] = penjualan_wma.get('Qty', 0) * penjualan_wma['Bobot']
-        
-        wma_grouped = penjualan_wma.groupby(['City', 'No. Barang'])['WMA_Kuantitas'].sum().reset_index().rename(columns={'WMA_Kuantitas': 'AVG WMA'})
+        # --- PERHITUNGAN WMA BARU ---
+        wma_grouped = penjualan_for_wma.groupby(['City', 'No. Barang']).apply(calculate_daily_wma, end_date=end_date).reset_index(name='AVG WMA')
 
-        barang_list = produk_ref[['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']].drop_duplicates()
-        kombinasi = pd.MultiIndex.from_product([penjualan['City'].unique(), barang_list['No. Barang'].unique()], names=['City', 'No. Barang']).to_frame(index=False)
+        barang_list = produk_ref[['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']].drop_duplicates()
+        city_list = penjualan['City'].unique()
+        kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
         full_data = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
         full_data = pd.merge(full_data, wma_grouped, on=['City', 'No. Barang'], how='left').fillna(0)
-
-        final_result = full_data.copy()
-        final_result['Total Kuantitas'] = final_result['AVG WMA']
         
-        final_result = final_result.groupby('City', group_keys=False).apply(classify_abc_stock).reset_index(drop=True)
+        full_data['Total Kuantitas'] = full_data['AVG WMA']
+        
+        final_result = full_data.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
         
         final_result['Min Stock'] = final_result['AVG WMA'].apply(calculate_min_stock)
+        # Safety stock di-nol-kan sementara karena perhitungannya butuh data bulanan yg tidak lagi dihitung
         final_result['Safety Stock'] = 0 
         final_result['ROP'] = final_result.apply(lambda row: calculate_rop(row['Min Stock'], row['Safety Stock']), axis=1)
         final_result['Max Stock'] = final_result.apply(lambda row: calculate_max_stock(row['AVG WMA'], row['Kategori ABC']), axis=1)
 
-        prefix_to_city_map = {'A - ITC': 'Surabaya','AT - TRANSIT ITC': 'Surabaya','B': 'Jakarta','BT - TRANSIT JKT': 'Jakarta','C': 'Surabaya','C6': 'Surabaya','CT - TRANSIT PUSAT': 'Surabaya','D - SMG': 'Semarang','DT - TRANSIT SMG': 'Semarang','E - JOG': 'Jogja','ET - TRANSIT JOG': 'Jogja','F - MLG': 'Malang','FT - TRANSIT MLG': 'Malang','H - BALI': 'Bali','HT - TRANSIT BALI': 'Bali','Y - SBY': 'Surabaya','Y3 - Display Y': 'Surabaya','YT - TRANSIT Y': 'Surabaya'}
-        id_vars = ['No. Barang', 'Keterangan Barang']
-        value_vars = [col for col in stock_df_raw.columns if col not in id_vars]
-        stock_long = stock_df_raw.melt(id_vars=id_vars, value_vars=value_vars, var_name='Gudang', value_name='Stock')
-        stock_long['City'] = stock_long['Gudang'].str.strip().map(prefix_to_city_map)
-        stock_melted = stock_long.dropna(subset=['City']).groupby(['City', 'No. Barang'])['Stock'].sum().reset_index()
+        # ... sisa kode integrasi stok tetap sama ...
+        prefix_to_city = {'A - ITC': 'Surabaya','AT - TRANSIT ITC': 'Surabaya','B': 'Jakarta','BT - TRANSIT JKT': 'Jakarta','C': 'Surabaya','C6': 'Surabaya','CT - TRANSIT PUSAT': 'Surabaya','D - SMG': 'Semarang','DT - TRANSIT SMG': 'Semarang','E - JOG': 'Jogja','ET - TRANSIT JOG': 'Jogja','F - MLG': 'Malang','FT - TRANSIT MLG': 'Malang','H - BALI': 'Bali','HT - TRANSIT BALI': 'Bali','Y - SBY': 'Surabaya','Y3 - Display Y': 'Surabaya','YT - TRANSIT Y': 'Surabaya'}
+        stock_df_raw = df_stock.rename(columns=lambda x: x.strip())
+        stok_columns = [col for col in stock_df_raw.columns if col not in ['No. Barang', 'Keterangan Barang']]
+        
+        stock_melted_list = []
+        for city_name, prefixes in {'Surabaya': ['A - ITC', 'AT - TRANSIT ITC', 'C', 'C6', 'CT - TRANSIT PUSAT', 'Y - SBY', 'Y3 - Display Y', 'YT - TRANSIT Y'], 'Jakarta': ['B', 'BT - TRANSIT JKT'], 'Semarang': ['D - SMG', 'DT - TRANSIT SMG'], 'Jogja': ['E - JOG', 'ET - TRANSIT JOG'], 'Malang': ['F - MLG', 'FT - TRANSIT MLG'], 'Bali': ['H - BALI', 'HT - TRANSIT BALI']}.items():
+            city_cols = [col for col in stok_columns if any(col.startswith(p) for p in prefixes)]
+            city_stock = stock_df_raw[['No. Barang'] + city_cols]
+            city_stock['Stock'] = city_stock[city_cols].sum(axis=1)
+            city_stock['City'] = city_name
+            stock_melted_list.append(city_stock[['No. Barang', 'City', 'Stock']])
+
+        stock_melted = pd.concat(stock_melted_list, ignore_index=True)
 
         final_result = pd.merge(final_result, stock_melted, on=['City', 'No. Barang'], how='left').rename(columns={'Stock': 'Stock Cabang'})
         final_result['Stock Cabang'].fillna(0, inplace=True)
@@ -303,11 +318,16 @@ elif page == "Hasil Analisa Stock":
         stock_surabaya = stock_melted[stock_melted['City'] == 'Surabaya'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
         stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
         so_total = final_result.groupby('No. Barang')['AVG WMA'].sum().reset_index().rename(columns={'AVG WMA': 'SO Total'})
-        final_result = final_result.merge(stock_surabaya, on='No. Barang', how='left').merge(stock_total, on='No. Barang', how='left').merge(so_total, on='No. Barang', how='left').fillna(0)
+        
+        final_result = final_result.merge(stock_surabaya, on='No. Barang', how='left')
+        final_result = final_result.merge(stock_total, on='No. Barang', how='left')
+        final_result = final_result.merge(so_total, on='No. Barang', how='left')
+        final_result.fillna(0, inplace=True)
         
         final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang(row['Stock Surabaya'], row['Add Stock'], row['Stock Cabang'], row['AVG WMA'], row['Stock Total'], row['SO Total']), axis=1)
         
-        for col in ['Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO Total']:
+        numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO Total', 'AVG WMA']
+        for col in numeric_cols:
             final_result[col] = final_result[col].round(0).astype(int)
 
     st.success("✅ Analisis Stok selesai!")
@@ -325,10 +345,7 @@ elif page == "Hasil Analisa Stock":
         keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
         pivot_cols = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock']
         
-        agg_functions = {col: 'first' for col in pivot_cols}
-        
-        pivot_result = final_result.pivot_table(index=keys, columns='City', values=pivot_cols, aggfunc=agg_functions)
-        
+        pivot_result = final_result.pivot_table(index=keys, columns='City', values=pivot_cols, aggfunc='first')
         pivot_result.columns = [f"{level1}_{level0}" for level0, level1 in pivot_result.columns]
         pivot_result.reset_index(inplace=True)
 
@@ -348,7 +365,7 @@ elif page == "Hasil Analisa Stock":
         all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
         all_sales_for_abc['City'] = 'All'
         
-        all_classified = all_sales_for_abc.groupby('City', group_keys=False).apply(classify_abc_stock).reset_index(drop=True)
+        all_classified = all_sales_for_abc.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
         all_classified.rename(columns={'Kategori ABC': 'All_Kategori ABC All'}, inplace=True)
         
         total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
@@ -360,8 +377,7 @@ elif page == "Hasil Analisa Stock":
         final_display_cols = keys + existing_ordered_cols + final_summary_cols
         
         st.dataframe(pivot_result[final_display_cols], use_container_width=True)
-
-    # ADDED: Tombol Download untuk Hasil Analisa Stock
+    
     st.header("💾 Unduh Hasil Analisis Stock")
     output_stock = BytesIO()
     with pd.ExcelWriter(output_stock, engine='openpyxl') as writer:
@@ -376,6 +392,7 @@ elif page == "Hasil Analisa Stock":
         file_name=f"Hasil_Analisis_Stock_{start_date}_sd_{end_date}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
 
 elif page == "Hasil Analisa ABC":
     st.title("📊 Analisis ABC Berdasarkan Metrik Penjualan Dinamis")
@@ -525,5 +542,3 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
-
-
