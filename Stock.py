@@ -104,7 +104,8 @@ def download_and_read(file_id, file_name, **kwargs):
 def read_produk_file(file_id):
     fh = download_file_from_gdrive(file_id)
     df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3])
-    df.columns = ['No. Barang', 'BRAND Barang', 'Nama Kategori Barang', 'Keterangan Barang']
+    # FIXED: Menggunakan nama kolom asli dari file Excel
+    df.columns = ['No. Barang', 'BRAND Barang', 'Nama Kategori Barang Barang', 'Keterangan Barang']
     return df
 
 def read_stock_file(file_id):
@@ -273,7 +274,8 @@ elif page == "Hasil Analisa Stock":
     penjualan.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
     penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
     penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
-    produk_ref.rename(columns={'Nama Kategori Barang': 'Kategori Barang', 'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
+    # FIXED: Menyesuaikan dengan nama kolom asli dari file
+    produk_ref.rename(columns={'Nama Kategori Barang Barang': 'Kategori Barang', 'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
     penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
 
     st.header("Filter Analisis Stock")
@@ -324,6 +326,7 @@ elif page == "Hasil Analisa Stock":
                 # ... (sisa kode integrasi stok)
                 st.session_state.stock_analysis_result = final_result.copy()
                 st.success("Analisis Stok berhasil dijalankan!")
+
 
     if st.session_state.stock_analysis_result is not None:
         final_result_display = st.session_state.stock_analysis_result.copy()
