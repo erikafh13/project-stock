@@ -26,7 +26,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.2.0")
+st.sidebar.info("User: John Doe\n\nVersion: 1.2.1")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -56,7 +56,7 @@ try:
         credentials = service_account.Credentials.from_service_account_file(
             'credentials.json', scopes=SCOPES
         )
-        st.sidebar.success("Berhasil terhubung ke Google Drive via file lokal.", icon="💻")
+        st.sidebar.success("Berhasil terhubung ke Google Drive via file lokal.", icon="�")
     else:
         st.sidebar.error("Kredensial Google Drive tidak ditemukan.")
         credentials = None
@@ -187,7 +187,6 @@ if page == "Input Data":
         if selected_stock_file:
             with st.spinner(f"Memuat file {selected_stock_file['name']}..."):
                 st.session_state.df_stock = read_stock_file(selected_stock_file['id'])
-                # Simpan nama file yang dipilih untuk digunakan di halaman lain
                 st.session_state.stock_filename = selected_stock_file['name']
                 st.rerun()
 
@@ -219,6 +218,28 @@ elif page == "Hasil Analisa Stock":
             city_df['% Kumulatif'] = city_df['% kontribusi'].cumsum()
             city_df['Kategori ABC'] = city_df['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
         return city_df
+    
+    def remove_outliers(data, threshold=2):
+        if not isinstance(data, list) or len(data) < 2: return data
+        avg = np.mean(data)
+        std = np.std(data)
+        if std == 0: return data
+        return [x for x in data if abs(x - avg) <= threshold * std]
+
+    def get_z_score(category, volatility):
+        base_z = {'A': 1.65, 'B': 1.0, 'C': 0.0, 'D': 0.0}.get(category, 0.0)
+        if volatility > 1.5: return base_z + 0.2
+        elif volatility < 0.5: return base_z - 0.2
+        return base_z
+
+    def calculate_safety_stock_from_series(penjualan_bulanan, category, lead_time=0.7):
+        clean_data = remove_outliers(penjualan_bulanan)
+        if len(clean_data) < 2: return 0
+        std_dev = np.std(clean_data); mean = np.mean(clean_data)
+        if mean == 0: return 0
+        volatility = std_dev / mean
+        z = get_z_score(category, volatility)
+        return round(z * std_dev * math.sqrt(lead_time), 2)
     
     def highlight_kategori(val):
         warna = {'A': 'background-color: #b6e4b6', 'B': 'background-color: #fff3b0', 'C': 'background-color: #ffd6a5', 'D': 'background-color: #f4bbbb'}
@@ -264,18 +285,13 @@ elif page == "Hasil Analisa Stock":
 
     st.header("Filter Tanggal Analisis Stock")
     
-    # --- LOGIKA PENENTUAN TANGGAL OTOMATIS ---
     default_end_date = penjualan['Tgl Faktur'].dropna().max().date()
-    # Coba ekstrak tanggal dari nama file stok
     if st.session_state.stock_filename:
-        # Cari 8 digit angka (DDMMYYYY)
         match = re.search(r'(\d{8})', st.session_state.stock_filename)
         if match:
             try:
-                # Konversi string tanggal ke objek datetime
                 default_end_date = datetime.strptime(match.group(1), '%d%m%Y').date()
             except ValueError:
-                # Jika format tidak sesuai, gunakan tanggal maks dari data penjualan
                 pass
     
     default_start_date = default_end_date - timedelta(days=89)
@@ -300,15 +316,22 @@ elif page == "Hasil Analisa Stock":
         full_data = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
         full_data = pd.merge(full_data, wma_grouped, on=['City', 'No. Barang'], how='left').fillna(0)
         
+        # --- PERHITUNGAN SAFETY STOCK BARU ---
+        penjualan_for_wma['Bulan'] = penjualan_for_wma['Tgl Faktur'].dt.to_period('M')
+        monthly_sales = penjualan_for_wma.groupby(['City', 'No. Barang', 'Bulan'])['Kuantitas'].sum().unstack(fill_value=0).reset_index()
+        full_data = pd.merge(full_data, monthly_sales, on=['City', 'No. Barang'], how='left').fillna(0)
+        
         full_data['Total Kuantitas'] = full_data['AVG WMA']
         
         final_result = full_data.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
         
+        bulan_columns = [col for col in final_result.columns if isinstance(col, pd.Period)]
+        final_result['Safety Stock'] = final_result.apply(lambda row: calculate_safety_stock_from_series(row[bulan_columns].tolist(), row['Kategori ABC']), axis=1)
         final_result['Min Stock'] = final_result['AVG WMA'].apply(calculate_min_stock)
-        final_result['Safety Stock'] = 0 
         final_result['ROP'] = final_result.apply(lambda row: calculate_rop(row['Min Stock'], row['Safety Stock']), axis=1)
         final_result['Max Stock'] = final_result.apply(lambda row: calculate_max_stock(row['AVG WMA'], row['Kategori ABC']), axis=1)
 
+        # ... sisa kode integrasi stok tetap sama ...
         prefix_to_city = {'A - ITC': 'Surabaya','AT - TRANSIT ITC': 'Surabaya','B': 'Jakarta','BT - TRANSIT JKT': 'Jakarta','C': 'Surabaya','C6': 'Surabaya','CT - TRANSIT PUSAT': 'Surabaya','D - SMG': 'Semarang','DT - TRANSIT SMG': 'Semarang','E - JOG': 'Jogja','ET - TRANSIT JOG': 'Jogja','F - MLG': 'Malang','FT - TRANSIT MLG': 'Malang','H - BALI': 'Bali','HT - TRANSIT BALI': 'Bali','Y - SBY': 'Surabaya','Y3 - Display Y': 'Surabaya','YT - TRANSIT Y': 'Surabaya'}
         stock_df_raw = df_stock.rename(columns=lambda x: x.strip())
         stok_columns = [col for col in stock_df_raw.columns if col not in ['No. Barang', 'Keterangan Barang']]
@@ -555,4 +578,3 @@ elif page == "Dashboard":
         st.subheader("Data Annotation")
         chart_data_area = pd.DataFrame(np.random.rand(20, 2) / 2 + 0.3, columns=['Actual', 'Predicted'])
         st.area_chart(chart_data_area)
-
