@@ -437,13 +437,11 @@ elif page == "Hasil Analisa Stock":
                     st.warning("Tidak ada data untuk ditampilkan pada tabel gabungan berdasarkan filter produk yang dipilih.")
                 else:
                     keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
-                    # --- PERUBAHAN: Tambahkan 'Suggested PO' ke pivot ---
                     pivot_cols = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     pivot_result = final_result_display.pivot_table(index=keys, columns='City', values=pivot_cols, aggfunc='first')
                     pivot_result.columns = [f"{level1}_{level0}" for level0, level1 in pivot_result.columns]
                     pivot_result.reset_index(inplace=True)
                     cities = sorted(final_result_display['City'].unique())
-                    # --- PERUBAHAN: Tambahkan 'Suggested PO' ke urutan metrik ---
                     metric_order = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     ordered_city_cols = [f"{city}_{metric}" for city in cities for metric in metric_order]
                     existing_ordered_cols = [col for col in ordered_city_cols if col in pivot_result.columns]
