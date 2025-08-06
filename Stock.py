@@ -264,16 +264,35 @@ elif page == "Hasil Analisa Stock":
 
     def calculate_rop(min_stock, safety_stock): return min_stock + safety_stock
 
-    def hitung_po_cabang(stock_surabaya, add_stock_cabang, stock_cabang, so_cabang, stock_total, so_total):
+    # --- PERUBAHAN FUNGSI SUGGESTED PO ---
+    def hitung_po_cabang_baru(stock_surabaya, stock_cabang, stock_total, suggest_po_all, so_cabang, add_stock_cabang):
         try:
-            add_stock_cabang_val = 0 if add_stock_cabang == '-' else add_stock_cabang
-            if stock_surabaya < add_stock_cabang_val or stock_total <= 0: return 0
-            kebutuhan_20hari = so_cabang / 30 * 20
-            if stock_total < so_total and stock_cabang < kebutuhan_20hari:
-                ideal_po = ((stock_cabang + add_stock_cabang_val) / stock_total * stock_surabaya) - stock_cabang
-                return max(0, round(ideal_po))
-            else: return round(add_stock_cabang_val)
-        except (ZeroDivisionError, TypeError): return 0
+            # Kondisi 1
+            if stock_surabaya < stock_cabang:
+                return 0
+            
+            # Kondisi 3
+            kebutuhan_21_hari = (so_cabang / 30) * 21
+            kondisi_3_terpenuhi = stock_cabang < kebutuhan_21_hari
+            
+            # Kondisi 2
+            kondisi_2_terpenuhi = stock_total < suggest_po_all
+            
+            # Logika Gabungan
+            if kondisi_2_terpenuhi and kondisi_3_terpenuhi:
+                # Rumus Proporsional jika kedua kondisi terpenuhi
+                if stock_total > 0:
+                    ideal_po = ((stock_cabang + add_stock_cabang) / stock_total * stock_surabaya) - stock_cabang
+                    return max(0, round(ideal_po))
+                else:
+                    return 0 # Mencegah pembagian dengan nol
+            else:
+                # Rumus Standar jika salah satu atau kedua kondisi tidak terpenuhi
+                return round(add_stock_cabang)
+        
+        except (ZeroDivisionError, TypeError):
+            # Pengaman jika ada error perhitungan lain
+            return 0
 
     if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty or st.session_state.df_stock.empty:
         st.warning("⚠️ Harap muat semua file di halaman **'Input Data'** terlebih dahulu untuk melihat hasil analisis.")
@@ -349,18 +368,35 @@ elif page == "Hasil Analisa Stock":
                 final_result['Add Stock'] = final_result.apply(lambda row: max(0, row['ROP'] - row['Stock Cabang']), axis=1)
                 stock_surabaya = stock_melted[stock_melted['City'] == 'Surabaya'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
                 stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
-                so_total = final_result.groupby('No. Barang')['AVG WMA'].sum().reset_index().rename(columns={'AVG WMA': 'SO Total'})
+                
+                # --- PERUBAHAN LOGIKA PO ---
+                # 1. Hitung 'Suggest PO All' dari jumlah 'Add Stock'
+                suggest_po_all_df = final_result.groupby('No. Barang')['Add Stock'].sum().reset_index()
+                suggest_po_all_df.rename(columns={'Add Stock': 'Suggest PO All'}, inplace=True)
+                
+                # 2. Gabungkan data baru ini ke tabel utama
                 final_result = final_result.merge(stock_surabaya, on='No. Barang', how='left')
                 final_result = final_result.merge(stock_total, on='No. Barang', how='left')
-                final_result = final_result.merge(so_total, on='No. Barang', how='left')
+                final_result = final_result.merge(suggest_po_all_df, on='No. Barang', how='left')
                 final_result.fillna(0, inplace=True)
-                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang(row['Stock Surabaya'], row['Add Stock'], row['Stock Cabang'], row['AVG WMA'], row['Stock Total'], row['SO Total']), axis=1)
-                numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO Total', 'AVG WMA']
+
+                # 3. Panggil fungsi baru untuk menghitung 'Suggested PO'
+                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang_baru(
+                    stock_surabaya=row['Stock Surabaya'], 
+                    stock_cabang=row['Stock Cabang'], 
+                    stock_total=row['Stock Total'], 
+                    suggest_po_all=row['Suggest PO All'], 
+                    so_cabang=row['AVG WMA'], 
+                    add_stock_cabang=row['Add Stock']
+                ), axis=1)
+                # --- AKHIR PERUBAHAN LOGIKA PO ---
+                
+                numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggest PO All', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'AVG WMA']
                 for col in numeric_cols:
-                    final_result[col] = final_result[col].round(0).astype(int)
+                    if col in final_result.columns:
+                        final_result[col] = final_result[col].round(0).astype(int)
                 st.session_state.stock_analysis_result = final_result.copy()
                 st.success("Analisis Stok berhasil dijalankan!")
-
 
     if st.session_state.stock_analysis_result is not None:
         final_result_to_filter = st.session_state.stock_analysis_result.copy()
@@ -436,8 +472,6 @@ elif page == "Hasil Analisa Stock":
                     pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Kategori ABC All']], on=keys, how='left')
                     final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
-                    
-                    # REVISI: Menghapus .style dari tabel gabungan untuk mencegah error
                     st.dataframe(pivot_result[final_display_cols], use_container_width=True)
 
             st.header("💾 Unduh Hasil Analisis Stock")
