@@ -264,7 +264,6 @@ elif page == "Hasil Analisa Stock":
 
     def calculate_rop(min_stock, safety_stock): return min_stock + safety_stock
 
-    # --- PERUBAHAN FUNGSI SUGGESTED PO ---
     def hitung_po_cabang_baru(stock_surabaya, stock_cabang, stock_total, suggest_po_all, so_cabang, add_stock_cabang):
         try:
             # Kondisi 1
@@ -291,7 +290,6 @@ elif page == "Hasil Analisa Stock":
                 return round(add_stock_cabang)
         
         except (ZeroDivisionError, TypeError):
-            # Pengaman jika ada error perhitungan lain
             return 0
 
     if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty or st.session_state.df_stock.empty:
@@ -368,35 +366,20 @@ elif page == "Hasil Analisa Stock":
                 final_result['Add Stock'] = final_result.apply(lambda row: max(0, row['ROP'] - row['Stock Cabang']), axis=1)
                 stock_surabaya = stock_melted[stock_melted['City'] == 'Surabaya'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
                 stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
-                
-                # --- PERUBAHAN LOGIKA PO ---
-                # 1. Hitung 'Suggest PO All' dari jumlah 'Add Stock'
                 suggest_po_all_df = final_result.groupby('No. Barang')['Add Stock'].sum().reset_index()
                 suggest_po_all_df.rename(columns={'Add Stock': 'Suggest PO All'}, inplace=True)
-                
-                # 2. Gabungkan data baru ini ke tabel utama
                 final_result = final_result.merge(stock_surabaya, on='No. Barang', how='left')
                 final_result = final_result.merge(stock_total, on='No. Barang', how='left')
                 final_result = final_result.merge(suggest_po_all_df, on='No. Barang', how='left')
                 final_result.fillna(0, inplace=True)
-
-                # 3. Panggil fungsi baru untuk menghitung 'Suggested PO'
-                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang_baru(
-                    stock_surabaya=row['Stock Surabaya'], 
-                    stock_cabang=row['Stock Cabang'], 
-                    stock_total=row['Stock Total'], 
-                    suggest_po_all=row['Suggest PO All'], 
-                    so_cabang=row['AVG WMA'], 
-                    add_stock_cabang=row['Add Stock']
-                ), axis=1)
-                # --- AKHIR PERUBAHAN LOGIKA PO ---
-                
+                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang_baru(stock_surabaya=row['Stock Surabaya'], stock_cabang=row['Stock Cabang'], stock_total=row['Stock Total'], suggest_po_all=row['Suggest PO All'], so_cabang=row['AVG WMA'], add_stock_cabang=row['Add Stock']), axis=1)
                 numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'ROP', 'Add Stock', 'Suggest PO All', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'AVG WMA']
                 for col in numeric_cols:
                     if col in final_result.columns:
                         final_result[col] = final_result[col].round(0).astype(int)
                 st.session_state.stock_analysis_result = final_result.copy()
                 st.success("Analisis Stok berhasil dijalankan!")
+
 
     if st.session_state.stock_analysis_result is not None:
         final_result_to_filter = st.session_state.stock_analysis_result.copy()
@@ -454,12 +437,14 @@ elif page == "Hasil Analisa Stock":
                     st.warning("Tidak ada data untuk ditampilkan pada tabel gabungan berdasarkan filter produk yang dipilih.")
                 else:
                     keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
-                    pivot_cols = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock']
+                    # --- PERUBAHAN: Tambahkan 'Suggested PO' ke pivot ---
+                    pivot_cols = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     pivot_result = final_result_display.pivot_table(index=keys, columns='City', values=pivot_cols, aggfunc='first')
                     pivot_result.columns = [f"{level1}_{level0}" for level0, level1 in pivot_result.columns]
                     pivot_result.reset_index(inplace=True)
                     cities = sorted(final_result_display['City'].unique())
-                    metric_order = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock']
+                    # --- PERUBAHAN: Tambahkan 'Suggested PO' ke urutan metrik ---
+                    metric_order = ['AVG WMA', 'Kategori ABC', 'Min Stock', 'Safety Stock', 'ROP', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     ordered_city_cols = [f"{city}_{metric}" for city in cities for metric in metric_order]
                     existing_ordered_cols = [col for col in ordered_city_cols if col in pivot_result.columns]
                     total_agg = final_result_display.groupby(keys).agg(All_Stock=('Stock Cabang', 'sum'), All_SO=('AVG WMA', 'sum'), All_Suggested_PO=('Suggested PO', 'sum')).reset_index()
