@@ -255,7 +255,7 @@ elif page == "Hasil Analisa Stock":
         return '-'
 
     def highlight_status_stock(val):
-        colors = {'Understock': '#fff3cd', 'Balance': '#d4edda', 'Overstock': '#f8d7da', 'Overstock D': '#f5c6cb'}
+        colors = {'Understock': '#fff3cd', 'Balance': '#d4edda', 'Overstock': '#ffd6a5', 'Overstock D': '#f5c6cb'}
         return f'background-color: {colors.get(val, "")}'
 
     def calculate_max_stock(avg_wma, category):
@@ -311,7 +311,6 @@ elif page == "Hasil Analisa Stock":
         with st.spinner("Melakukan perhitungan analisis stok..."):
             wma_start_date = pd.to_datetime(end_date) - pd.DateOffset(days=89)
             penjualan_for_wma = penjualan[(penjualan['Tgl Faktur'] >= wma_start_date) & (penjualan['Tgl Faktur'] <= pd.to_datetime(end_date))]
-
             if penjualan_for_wma.empty:
                 st.error("Tidak ada data penjualan dalam rentang 90 hari terakhir dari tanggal akhir yang dipilih.")
                 st.session_state.stock_analysis_result = None
@@ -366,65 +365,46 @@ elif page == "Hasil Analisa Stock":
     if st.session_state.stock_analysis_result is not None:
         final_result_to_filter = st.session_state.stock_analysis_result.copy()
         final_result_to_filter = final_result_to_filter[final_result_to_filter['City'] != 'Others']
-
         st.markdown("---")
         st.header("Filter Produk (Berlaku untuk Semua Tabel)")
-        
         col_f1, col_f2, col_f3 = st.columns(3)
-
-        # FIX: Convert options to string before sorting to prevent TypeError
         kategori_options = sorted(final_result_to_filter['Kategori Barang'].dropna().unique().astype(str))
         selected_kategori = col_f1.multiselect("Kategori:", kategori_options)
-
         brand_options = sorted(final_result_to_filter['BRAND Barang'].dropna().unique().astype(str))
         selected_brand = col_f2.multiselect("Brand:", brand_options)
-        
         product_options = sorted(final_result_to_filter['Nama Barang'].dropna().unique().astype(str))
         selected_products = col_f3.multiselect("Nama Produk:", product_options)
-
         if selected_kategori:
             final_result_to_filter = final_result_to_filter[final_result_to_filter['Kategori Barang'].astype(str).isin(selected_kategori)]
         if selected_brand:
             final_result_to_filter = final_result_to_filter[final_result_to_filter['BRAND Barang'].astype(str).isin(selected_brand)]
         if selected_products:
             final_result_to_filter = final_result_to_filter[final_result_to_filter['Nama Barang'].astype(str).isin(selected_products)]
-
         final_result_display = final_result_to_filter.copy()
-        
         st.header("Filter Hasil (Hanya untuk Tabel per Kota)")
         col_h1, col_h2 = st.columns(2)
-        
-        # FIX: Convert options to string before sorting
         abc_options = sorted(final_result_display['Kategori ABC'].dropna().unique().astype(str))
         selected_abc = col_h1.multiselect("Kategori ABC:", abc_options)
-        
         status_options = sorted(final_result_display['Status Stock'].dropna().unique().astype(str))
         selected_status = col_h2.multiselect("Status Stock:", status_options)
-
         st.markdown("---")
-        
         tab1, tab2 = st.tabs(["Hasil Tabel", "Dashboard"])
 
         with tab1:
             header_style = {'selector': 'th', 'props': [('background-color', '#0068c9'), ('color', 'white'), ('text-align', 'center')]}
-
             st.header("Hasil Analisis Stok per Kota")
             for city in sorted(final_result_display['City'].unique()):
                 with st.expander(f"📍 Lihat Hasil Stok untuk Kota: {city}"):
                     city_df = final_result_display[final_result_display['City'] == city].copy()
-                    
                     if selected_abc:
                         city_df = city_df[city_df['Kategori ABC'].isin(selected_abc)]
                     if selected_status:
                         city_df = city_df[city_df['Status Stock'].isin(selected_status)]
-
                     if city_df.empty:
                         st.write("Tidak ada data yang cocok dengan filter yang dipilih.")
                         continue
-                        
                     city_df.rename(columns={'AVG WMA': 'Penjualan'}, inplace=True)
                     display_cols_city = ['No. Barang', 'Nama Barang', 'Kategori Barang', 'BRAND Barang', 'Penjualan', 'Kategori ABC', 'Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'Status Stock', 'ROP', 'Add Stock', 'Suggested PO']
-                    
                     st.dataframe(
                         city_df[display_cols_city].style.applymap(highlight_kategori, subset=['Kategori ABC'])
                                                        .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
@@ -457,7 +437,8 @@ elif page == "Hasil Analisa Stock":
                     final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
-                    st.dataframe(pivot_result[final_display_cols].style.set_table_styles([header_style]), use_container_width=True)
+                    # REVISI: Menghapus .style dari tabel gabungan untuk mencegah error
+                    st.dataframe(pivot_result[final_display_cols], use_container_width=True)
 
             st.header("💾 Unduh Hasil Analisis Stock")
             output_stock = BytesIO()
@@ -584,14 +565,10 @@ elif page == "Hasil Analisa ABC":
             result_display = result_display[result_display['City'] != 'Others']
             st.header("Filter Hasil Analisis")
             col_f1, col_f2 = st.columns(2)
-            
-            # FIX: Convert options to string before sorting
             kategori_options_abc = sorted(produk_ref['Kategori Barang'].dropna().unique().astype(str))
             selected_kategori_abc = col_f1.multiselect("Filter berdasarkan Kategori:", kategori_options_abc, key="abc_cat_filter")
-            
             brand_options_abc = sorted(produk_ref['BRAND Barang'].dropna().unique().astype(str))
             selected_brand_abc = col_f2.multiselect("Filter berdasarkan Brand:", brand_options_abc, key="abc_brand_filter")
-
             if selected_kategori_abc:
                 result_display = result_display[result_display['Kategori Barang'].astype(str).isin(selected_kategori_abc)]
             if selected_brand_abc:
