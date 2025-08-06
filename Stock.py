@@ -27,7 +27,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("User: John Doe\n\nVersion: 1.4.2")
+st.sidebar.info("User: John Doe\n\nVersion: 1.5.0 (Fixed ABC-D Classification)")
 if st.sidebar.button("Logout"):
     st.sidebar.success("Anda berhasil logout!")
 
@@ -134,7 +134,7 @@ def map_city(nama_dept):
     else: return 'Others'
 
 # =====================================================================================
-#                                    ROUTING HALAMAN
+#                                       ROUTING HALAMAN
 # =====================================================================================
 
 if page == "Input Data":
@@ -206,26 +206,46 @@ elif page == "Hasil Analisa Stock":
         sales_61_to_90_days = group[(group['Tgl Faktur'] >= range3_start) & (group['Tgl Faktur'] <= range3_end)]['Kuantitas'].sum()
         wma = (sales_last_30_days * 0.5) + (sales_31_to_60_days * 0.3) + (sales_61_to_90_days * 0.2)
         return wma
+
+    # KODE BARU: Fungsi classify_abc yang sudah diperbaiki
     def classify_abc(city_df):
-        city_df = city_df.sort_values(by='Total Kuantitas', ascending=False).reset_index(drop=True)
-        total = city_df['Total Kuantitas'].sum()
-        if total == 0:
-            city_df['% kontribusi'] = 0; city_df['% Kumulatif'] = 0; city_df['Kategori ABC'] = 'D'
-        else:
-            city_df['% kontribusi'] = 100 * city_df['Total Kuantitas'] / total
-            city_df['% Kumulatif'] = city_df['% kontribusi'].cumsum()
-            city_df['Kategori ABC'] = city_df['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
-        return city_df
+        group = city_df.sort_values(by='Total Kuantitas', ascending=False).reset_index(drop=True)
+        
+        # Pisahkan produk yang terjual dan tidak terjual
+        terjual = group[group['Total Kuantitas'] > 0].copy()
+        tidak_terjual = group[group['Total Kuantitas'] <= 0].copy()
+
+        total_kuantitas = terjual['Total Kuantitas'].sum()
+        
+        if total_kuantitas > 0:
+            terjual['% kontribusi'] = 100 * terjual['Total Kuantitas'] / total_kuantitas
+            terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
+            terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
+        else: # Jika tidak ada yang terjual sama sekali di grup (edge case)
+            terjual['% kontribusi'] = 0
+            terjual['% Kumulatif'] = 0
+            terjual['Kategori ABC'] = 'D'
+
+        # Beri label 'D' untuk semua yang tidak terjual
+        tidak_terjual['% kontribusi'] = 0
+        tidak_terjual['% Kumulatif'] = 100 # Tetap 100 untuk konsistensi data akhir
+        tidak_terjual['Kategori ABC'] = 'D'
+        
+        # Gabungkan kembali dan kembalikan
+        return pd.concat([terjual, tidak_terjual], ignore_index=True)
+
     def remove_outliers(data, threshold=2):
         if not isinstance(data, list) or len(data) < 2: return data
         avg = np.mean(data); std = np.std(data)
         if std == 0: return data
         return [x for x in data if abs(x - avg) <= threshold * std]
+        
     def get_z_score(category, volatility):
         base_z = {'A': 1.65, 'B': 1.0, 'C': 0.0, 'D': 0.0}.get(category, 0.0)
         if volatility > 1.5: return base_z + 0.2
         elif volatility < 0.5: return base_z - 0.2
         return base_z
+        
     def calculate_safety_stock_from_series(penjualan_bulanan, category, lead_time=0.7):
         clean_data = remove_outliers(penjualan_bulanan)
         if len(clean_data) < 2: return 0
@@ -234,23 +254,30 @@ elif page == "Hasil Analisa Stock":
         volatility = std_dev / mean
         z = get_z_score(category, volatility)
         return round(z * std_dev * math.sqrt(lead_time), 2)
+        
     def highlight_kategori(val):
         warna = {'A': 'background-color: #b6e4b6', 'B': 'background-color: #fff3b0', 'C': 'background-color: #ffd6a5', 'D': 'background-color: #f4bbbb'}
         return warna.get(val, '')
+        
     def calculate_min_stock(avg_wma): return avg_wma * 0.7
+    
     def get_status_stock(row):
         if row['Kategori ABC'] == 'D': return 'Overstock D' if row['Stock Cabang'] > 2 else 'Balance'
         if row['Stock Cabang'] > row['Max Stock']: return 'Overstock no D'
         if row['Stock Cabang'] >= row['ROP']: return 'Balance'
         if row['Stock Cabang'] < row['ROP']: return 'Understock'
         return '-'
+        
     def highlight_status_stock(val):
         colors = {'Understock': 'background-color: #fff3b0', 'Balance': 'background-color: #b6e4b6', 'Overstock no D': 'background-color: #ffd6a5', 'Overstock D': 'background-color: #f4bbbb'}
         return colors.get(val, '')
+        
     def calculate_max_stock(avg_wma, category):
         multiplier = {'A': 2, 'B': 1, 'C': 0.5, 'D': 0}
         return avg_wma * multiplier.get(category, 0)
+        
     def calculate_rop(min_stock, safety_stock): return min_stock + safety_stock
+    
     def hitung_po_cabang(stock_surabaya, add_stock_cabang, stock_cabang, so_cabang, stock_total, so_total):
         try:
             add_stock_cabang_val = 0 if add_stock_cabang == '-' else add_stock_cabang
@@ -312,7 +339,10 @@ elif page == "Hasil Analisa Stock":
                 monthly_sales = penjualan_for_wma.groupby(['City', 'No. Barang', 'Bulan'])['Kuantitas'].sum().unstack(fill_value=0).reset_index()
                 full_data = pd.merge(full_data, monthly_sales, on=['City', 'No. Barang'], how='left').fillna(0)
                 
+                # 'Total Kuantitas' digunakan oleh fungsi classify_abc
                 full_data['Total Kuantitas'] = full_data['AVG WMA']
+                
+                # Menggunakan fungsi classify_abc yang baru
                 final_result = full_data.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
                 
                 bulan_columns = [col for col in final_result.columns if isinstance(col, pd.Period)]
@@ -408,11 +438,10 @@ elif page == "Hasil Analisa Stock":
                     All_Suggested_PO=('Suggested PO', 'sum')
                 ).reset_index()
                 
+                # Gunakan fungsi classify_abc yang sudah diperbaiki untuk ringkasan
                 all_sales_for_abc = total_agg.copy()
                 all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
-                all_sales_for_abc['City'] = 'All'
-                
-                all_classified = all_sales_for_abc.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
+                all_classified = classify_abc(all_sales_for_abc)
                 all_classified.rename(columns={'Kategori ABC': 'All_Kategori ABC All'}, inplace=True)
                 
                 total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
@@ -490,6 +519,12 @@ elif page == "Hasil Analisa ABC":
     with tab1_abc:
         def classify_abc_dynamic(df_grouped, metric_col='Metrik_Penjualan'):
             abc_results = []
+            # Pastikan kolom 'City' ada sebelum groupby
+            if 'City' not in df_grouped.columns:
+                if not df_grouped.empty:
+                    st.warning("Kolom 'City' tidak ditemukan dalam data untuk klasifikasi ABC.")
+                return pd.DataFrame()
+                
             for city, city_group in df_grouped.groupby('City'):
                 group = city_group.sort_values(by=metric_col, ascending=False).reset_index(drop=True)
                 terjual = group[group[metric_col] > 0].copy()
@@ -501,7 +536,8 @@ elif page == "Hasil Analisa ABC":
                     terjual['% kontribusi'] = 100 * terjual[metric_col] / total_metric
                     terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
                     terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
-                tidak_terjual['% kontribusi'] = 0; tidak_terjual['% Kumulatif'] = 0; tidak_terjual['Kategori ABC'] = 'D'
+                
+                tidak_terjual['% kontribusi'] = 0; tidak_terjual['% Kumulatif'] = 100; tidak_terjual['Kategori ABC'] = 'D'
                 result = pd.concat([terjual, tidak_terjual], ignore_index=True)
                 abc_results.append(result)
             return pd.concat(abc_results, ignore_index=True) if abc_results else pd.DataFrame()
@@ -625,23 +661,32 @@ elif page == "Hasil Analisa ABC":
         st.header("📈 Dashboard Analisis ABC")
         if st.session_state.abc_analysis_result is not None and not result_display.empty:
             abc_summary = result_display.groupby('Kategori ABC')['Metrik_Penjualan'].agg(['count', 'sum'])
-            abc_summary['sum_perc'] = (abc_summary['sum'] / abc_summary['sum'].sum()) * 100
+            
+            # Hindari pembagian dengan nol jika total penjualan adalah 0
+            total_sales_sum = abc_summary['sum'].sum()
+            if total_sales_sum > 0:
+                abc_summary['sum_perc'] = (abc_summary['sum'] / total_sales_sum) * 100
+            else:
+                abc_summary['sum_perc'] = 0
 
             st.markdown("---")
-            col1, col2, col3 = st.columns(3)
+            # KODE BARU: 4 kolom untuk metrik, termasuk 'D'
+            col1, col2, col3, col4 = st.columns(4)
             if 'A' in abc_summary.index:
                 col1.metric("Produk Kelas A", f"{abc_summary.loc['A', 'count']} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% Penjualan")
             if 'B' in abc_summary.index:
                 col2.metric("Produk Kelas B", f"{abc_summary.loc['B', 'count']} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% Penjualan")
             if 'C' in abc_summary.index:
                 col3.metric("Produk Kelas C", f"{abc_summary.loc['C', 'count']} SKU", f"{abc_summary.loc['C', 'sum_perc']:.1f}% Penjualan")
+            if 'D' in abc_summary.index:
+                col4.metric("Produk Kelas D", f"{abc_summary.loc['D', 'count']} SKU", "Tidak Terjual")
             st.markdown("---")
 
             col_chart1, col_chart2 = st.columns(2)
             with col_chart1:
                 st.subheader("Komposisi Produk per Kelas ABC")
                 fig1, ax1 = plt.subplots()
-                ax1.pie(abc_summary['count'], labels=abc_summary.index, autopct='%1.1f%%', startangle=90)
+                ax1.pie(abc_summary['count'], labels=abc_summary.index, autopct='%1.1f%%', startangle=90, colors=['#b6e4b6', '#fff3b0', '#ffd6a5', '#f4bbbb'])
                 ax1.axis('equal')
                 st.pyplot(fig1)
             
