@@ -129,7 +129,7 @@ def map_city(nama_dept):
     else: return 'Others'
 
 # =====================================================================================
-#                                       ROUTING HALAMAN
+#                                     ROUTING HALAMAN
 # =====================================================================================
 
 if page == "Input Data":
@@ -151,9 +151,30 @@ if page == "Input Data":
                 st.success("Data penjualan berhasil dimuat ulang.")
         else:
             st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive.")
+
     if not st.session_state.df_penjualan.empty:
         st.success(f"✅ Data penjualan telah dimuat.")
         st.dataframe(st.session_state.df_penjualan)
+        
+        # --- [TAMBAHAN] Kode untuk Tombol Download Data Penjualan ---
+        @st.cache_data
+        def convert_df_to_excel(df):
+            # Fungsi untuk mengonversi DataFrame ke file Excel dalam format bytes
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Data Penjualan Gabungan')
+            processed_data = output.getvalue()
+            return processed_data
+
+        excel_data = convert_df_to_excel(st.session_state.df_penjualan)
+
+        st.download_button(
+            label="📥 Unduh Data Penjualan (Excel)",
+            data=excel_data,
+            file_name="data_penjualan_gabungan.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        # --- Akhir dari kode tambahan ---
 
     st.header("2. Produk Referensi")
     with st.spinner("Mencari file produk di Google Drive..."):
@@ -426,8 +447,8 @@ elif page == "Hasil Analisa Stock":
                     display_cols_city = ['No. Barang', 'Nama Barang', 'Kategori Barang', 'BRAND Barang', 'Penjualan', 'Kategori ABC', 'Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'Status Stock', 'ROP', 'Add Stock', 'Suggested PO']
                     st.dataframe(
                         city_df[display_cols_city].style.applymap(highlight_kategori, subset=['Kategori ABC'])
-                                                       .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
-                                                       .set_table_styles([header_style]), 
+                                                        .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
+                                                        .set_table_styles([header_style]), 
                         use_container_width=True
                     )
             
