@@ -443,14 +443,19 @@ elif page == "Hasil Analisa Stock":
                     if city_df.empty:
                         st.write("Tidak ada data yang cocok dengan filter yang dipilih.")
                         continue
+                    
+                    # --- PERUBAHAN DI SINI ---
+                    # Kolom 'AVG WMA' diubah namanya untuk kejelasan
                     city_df.rename(columns={'AVG WMA': 'Penjualan'}, inplace=True)
-                    display_cols_city = ['No. Barang', 'Nama Barang', 'Kategori Barang', 'BRAND Barang', 'Penjualan', 'Kategori ABC', 'Stock Cabang', 'Min Stock', 'Max Stock', 'Safety Stock', 'Status Stock', 'ROP', 'Add Stock', 'Suggested PO']
+                    
+                    # Menghapus pemilihan kolom spesifik, sehingga semua kolom ditampilkan
                     st.dataframe(
-                        city_df[display_cols_city].style.applymap(highlight_kategori, subset=['Kategori ABC'])
-                                                        .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
-                                                        .set_table_styles([header_style]), 
+                        city_df.style.applymap(highlight_kategori, subset=['Kategori ABC'])
+                                     .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
+                                     .set_table_styles([header_style]), 
                         use_container_width=True
                     )
+                    # --- AKHIR PERUBAHAN ---
             
             st.header("📊 Tabel Gabungan Seluruh Kota (Stock)")
             with st.spinner("Membuat tabel pivot gabungan untuk stok..."):
