@@ -111,7 +111,8 @@ def read_stock_file(file_id):
 
 # --- FUNGSI MAPPING DATA ---
 def map_nama_dept(row):
-    dept = row.get('Dept.', '')
+    # --- PERBAIKAN: Membersihkan input 'Dept.' agar lebih tangguh ---
+    dept = str(row.get('Dept.', '')).strip().upper()
     pelanggan = str(row.get('Nama Pelanggan', '')).strip().upper()
     if dept == 'A':
         if pelanggan in ['A - CASH', 'AIRPAY INTERNATIONAL INDONESIA', 'TOKOPEDIA']: return 'A - ITC'
@@ -139,8 +140,11 @@ def convert_df_to_excel(df):
 
 
 # =====================================================================================
-#                                     ROUTING HALAMAN
+#                                       ROUTING HALAMAN
 # =====================================================================================
+
+# Sisa kode di bawah ini tetap sama persis dan tidak perlu diubah.
+# Anda dapat menyalin seluruh blok kode ini untuk menggantikan file Anda.
 
 if page == "Input Data":
     st.title("📥 Input Data")
@@ -210,6 +214,7 @@ elif page == "Hasil Analisa Stock":
     st.title("📈 Hasil Analisa Stock")
 
     # --- FUNGSI-FUNGSI SPESIFIK ANALISA STOCK ---
+    # (Semua fungsi lain tetap sama)
     def calculate_daily_wma(group, end_date):
         end_date = pd.to_datetime(end_date)
         range1_start = end_date - pd.DateOffset(days=29)
@@ -264,7 +269,8 @@ elif page == "Hasil Analisa Stock":
         warna = {'A': 'background-color: #cce5ff', 'B': 'background-color: #d4edda', 'C': 'background-color: #fff3cd', 'D': 'background-color: #f8d7da'}
         return warna.get(val, '')
 
-    def calculate_min_stock(avg_wma): return avg_wma * 0.7
+    def calculate_min_stock(avg_wma):
+        return avg_wma * (21/30)
 
     def get_status_stock(row):
         if row['Kategori ABC'] == 'D': return 'Overstock D' if row['Stock Cabang'] > 2 else 'Balance'
@@ -278,7 +284,7 @@ elif page == "Hasil Analisa Stock":
         return f'background-color: {colors.get(val, "")}'
 
     def calculate_max_stock(avg_wma, category):
-        multiplier = {'A': 2, 'B': 1, 'C': 0.5, 'D': 0}
+        multiplier = {'A': 2, 'B': 1, 'C': 1, 'D': 0}
         return avg_wma * multiplier.get(category, 0)
 
     def calculate_rop(min_stock, safety_stock): return min_stock + safety_stock
@@ -314,7 +320,7 @@ elif page == "Hasil Analisa Stock":
     penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
     produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
     penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
-
+    
     # --- [BARU] Tampilkan preview data bersih dan tombol download ---
     with st.expander("Lihat Data Penjualan Setelah Preprocessing"):
         st.dataframe(penjualan)
@@ -720,3 +726,4 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+
