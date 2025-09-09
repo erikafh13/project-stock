@@ -215,7 +215,9 @@ elif page == "Hasil Analisa ROP":
         full_df = pd.merge(full_df, daily_sales, on=['Date', 'City', 'No. Barang'], how='left').fillna(0)
 
         # 3. Hitung WMA secara vectorized menggunakan rolling window
-        grouped = full_df.groupby(['City', 'No. Barang'])
+        # PENTING: sort=False untuk menjaga urutan indeks agar tidak error
+        grouped = full_df.groupby(['City', 'No. Barang'], sort=False)
+        
         sales_30d = grouped['Kuantitas'].rolling(window=30, min_periods=1).sum().reset_index(0, drop=True)
         sales_60d = grouped['Kuantitas'].rolling(window=60, min_periods=1).sum().reset_index(0, drop=True)
         sales_90d = grouped['Kuantitas'].rolling(window=90, min_periods=1).sum().reset_index(0, drop=True)
@@ -223,10 +225,8 @@ elif page == "Hasil Analisa ROP":
         full_df['WMA'] = (sales_30d * 0.5) + ((sales_60d - sales_30d) * 0.3) + ((sales_90d - sales_60d) * 0.2)
         
         # 4. Hitung Safety Stock secara vectorized
-        # Gunakan std dev dari penjualan harian sebagai proxy volatilitas
         std_dev_90d = grouped['Kuantitas'].rolling(window=90, min_periods=1).std().reset_index(0, drop=True).fillna(0)
         
-        # ABC Classification
         total_sales_per_item = full_df.groupby(['City', 'No. Barang'])['WMA'].mean().reset_index()
         total_sales_per_item = total_sales_per_item.rename(columns={'WMA': 'Avg_WMA_Period'})
         
@@ -240,14 +240,14 @@ elif page == "Hasil Analisa ROP":
                 df_city['Kategori ABC'] = df_city['Kategori ABC'].cat.add_categories('D').fillna('D')
             else:
                 df_city['Kategori ABC'] = 'D'
-            return df_city
+            return df_city[['No. Barang', 'Kategori ABC']]
         
         abc_classification = total_sales_per_item.groupby('City', group_keys=False).apply(classify_abc_vectorized)
-        full_df = pd.merge(full_df, abc_classification[['City', 'No. Barang', 'Kategori ABC']], on=['City', 'No. Barang'], how='left')
+        full_df = pd.merge(full_df, abc_classification, on=['City', 'No. Barang'], how='left')
 
         z_scores = {'A': 1.65, 'B': 1.0, 'C': 0.0, 'D': 0.0}
         full_df['Z_Score'] = full_df['Kategori ABC'].map(z_scores).fillna(0)
-        lead_time = 0.7  # 3 minggu / 4 minggu = 0.7 bulan
+        lead_time = 0.7
         full_df['Safety Stock'] = full_df['Z_Score'] * std_dev_90d * math.sqrt(lead_time)
 
         # 5. Hitung Min Stock dan ROP
@@ -286,7 +286,11 @@ elif page == "Hasil Analisa ROP":
     # --- UI untuk memilih rentang tanggal ---
     st.header("Pilih Rentang Tanggal untuk Perhitungan ROP")
     default_end_date = penjualan['Tgl Faktur'].max().date()
-    default_start_date = default_end_date - timedelta(days=6) # Default 7 hari
+    # Atur default tanggal awal 3 bulan sebelumnya jika data tersedia
+    three_months_ago = default_end_date - pd.DateOffset(months=3)
+    min_data_date = penjualan['Tgl Faktur'].min().date()
+    default_start_date = max(three_months_ago.date(), min_data_date)
+
 
     col1, col2 = st.columns(2)
     start_date = col1.date_input("Tanggal Awal", value=default_start_date, key="rop_start")
@@ -370,4 +374,3 @@ elif page == "Hasil Analisa ROP":
             file_name=f"Hasil_Analisis_ROP_{start_date}_sd_{end_date}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
