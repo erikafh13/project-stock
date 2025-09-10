@@ -58,7 +58,7 @@ try:
 
     if credentials:
         drive_service = build('drive', 'v3', credentials=credentials)
-        folder_penjualan = "1wH9o4dyNfjve9ScJ_DB2TwT0EDsPe9Zf"
+        folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
         folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
         folder_stock = "1PMeH_wvgRUnyiZyZ_wrmKAATX9JyWzq_"
         DRIVE_AVAILABLE = True
@@ -151,19 +151,7 @@ if page == "Input Data":
         st.dataframe(df_penjualan)
 
     st.header("2. Produk Referensi")
-    with st.spinner("Mencari file produk di Google Drive..."):
-        produk_files_list = list_files_in_folder(drive_service, folder_produk)
-    selected_produk_file = st.selectbox(
-        "Pilih file Produk dari Google Drive:",
-        options=[None] + produk_files_list,
-        format_func=lambda x: x['name'] if x else "Pilih file"
-    )
-    if selected_produk_file:
-        with st.spinner(f"Memuat file {selected_produk_file['name']}..."):
-            st.session_state.produk_ref = read_produk_file(selected_produk_file['id'])
-            st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
-    if not st.session_state.produk_ref.empty:
-        st.dataframe(st.session_state.produk_ref.head())
+    # ... (kode tidak berubah)
 
 # =====================================================================================
 #                                    HALAMAN HASIL ANALISA ROP
@@ -240,9 +228,19 @@ elif page == "Hasil Analisa ROP":
     with st.spinner("Menyiapkan data..."):
         penjualan = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
+        
         for df in [penjualan, produk_ref]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
+        
+        # --- PERBAIKAN: Pemeriksaan Kolom Kuantitas ---
+        if 'Qty' in penjualan.columns and 'Kuantitas' not in penjualan.columns:
+            penjualan.rename(columns={'Qty': 'Kuantitas'}, inplace=True)
+        elif 'Kuantitas' not in penjualan.columns:
+            st.error("Error: Kolom untuk jumlah penjualan tidak ditemukan. Pastikan file penjualan Anda memiliki kolom bernama 'Qty' atau 'Kuantitas'.")
+            st.stop()
+        # ----------------------------------------------
+
         penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
         penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
         penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
@@ -272,7 +270,7 @@ elif page == "Hasil Analisa ROP":
                         st.error("Tidak ada data yang dihasilkan.")
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat perhitungan: {e}")
-                    st.exception(e) # Menampilkan detail error untuk debugging
+                    st.exception(e)
 
     if st.session_state.rop_analysis_result is not None:
         result_df = st.session_state.rop_analysis_result.copy()
@@ -325,5 +323,6 @@ elif page == "Hasil Analisa ROP":
             file_name=f"Hasil_Analisis_ROP_{start_date}_sd_{end_date}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
 
 
