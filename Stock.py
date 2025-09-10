@@ -58,7 +58,7 @@ try:
 
     if credentials:
         drive_service = build('drive', 'v3', credentials=credentials)
-        folder_penjualan = "1wH9o4dyNfjve9ScJ_DB2TwT0EDsPe9Zf"
+        folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
         folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
         folder_stock = "1PMeH_wvgRUnyiZyZ_wrmKAATX9JyWzq_"
         DRIVE_AVAILABLE = True
@@ -95,13 +95,6 @@ def read_produk_file(file_id):
     df.columns = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
     return df
 
-def read_stock_file(file_id):
-    fh = download_file_from_gdrive(file_id)
-    df = pd.read_excel(fh, sheet_name="Sheet1", skiprows=9, header=None)
-    header = ['No. Barang', 'Keterangan Barang', 'A - ITC', 'AT - TRANSIT ITC', 'B', 'BT - TRANSIT JKT', 'C', 'C6', 'CT - TRANSIT PUSAT', 'D - SMG', 'DT - TRANSIT SMG', 'E - JOG', 'ET - TRANSIT JOG', 'F - MLG', 'FT - TRANSIT MLG', 'H - BALI', 'HT - TRANSIT BALI', 'X', 'Y - SBY', 'Y3 - Display Y', 'YT - TRANSIT Y']
-    df.columns = header[:len(df.columns)]
-    return df
-
 # --- FUNGSI MAPPING DATA ---
 def map_nama_dept(row):
     dept = str(row.get('Dept.', '')).strip().upper()
@@ -121,16 +114,6 @@ def map_city(nama_dept):
     elif nama_dept == 'H - BALI': return 'Bali'
     else: return 'Others'
 
-# --- FUNGSI KONVERSI EXCEL ---
-@st.cache_data
-def convert_df_to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-    processed_data = output.getvalue()
-    return processed_data
-
-
 # =====================================================================================
 #                                       HALAMAN INPUT DATA
 # =====================================================================================
@@ -140,7 +123,7 @@ if page == "Input Data":
     st.markdown("Muat atau muat ulang data yang diperlukan dari Google Drive.")
 
     if not DRIVE_AVAILABLE:
-        st.warning("Tidak dapat melanjutkan karena koneksi ke Google Drive gagal. Periksa log di sidebar.")
+        st.warning("Tidak dapat melanjutkan karena koneksi ke Google Drive gagal.")
         st.stop()
 
     st.header("1. Data Penjualan")
@@ -158,8 +141,6 @@ if page == "Input Data":
     if not st.session_state.df_penjualan.empty:
         df_penjualan = st.session_state.df_penjualan
         st.success(f"✅ Data penjualan telah dimuat ({len(df_penjualan)} baris).")
-
-        # Menambahkan informasi rentang tanggal
         df_penjualan['Tgl Faktur'] = pd.to_datetime(df_penjualan['Tgl Faktur'], errors='coerce')
         min_date = df_penjualan['Tgl Faktur'].min()
         max_date = df_penjualan['Tgl Faktur'].max()
@@ -167,14 +148,13 @@ if page == "Input Data":
         if pd.notna(min_date) and pd.notna(max_date):
             num_months = len(df_penjualan['Tgl Faktur'].dt.to_period('M').unique())
             st.info(f"📅 **Rentang Data:** Dari **{min_date.strftime('%d %B %Y')}** hingga **{max_date.strftime('%d %B %Y')}** ({num_months} bulan data).")
-
         st.dataframe(df_penjualan)
 
     st.header("2. Produk Referensi")
     with st.spinner("Mencari file produk di Google Drive..."):
         produk_files_list = list_files_in_folder(drive_service, folder_produk)
     selected_produk_file = st.selectbox(
-        "Pilih file Produk dari Google Drive (pilih 1 file):",
+        "Pilih file Produk dari Google Drive:",
         options=[None] + produk_files_list,
         format_func=lambda x: x['name'] if x else "Pilih file"
     )
@@ -185,19 +165,15 @@ if page == "Input Data":
     if not st.session_state.produk_ref.empty:
         st.dataframe(st.session_state.produk_ref.head())
 
-    st.header("3. Data Stock (Opsional)")
-    # ... (kode stock tidak berubah)
-
 # =====================================================================================
 #                                    HALAMAN HASIL ANALISA ROP
 # =====================================================================================
 elif page == "Hasil Analisa ROP":
     st.title("📈 Hasil Analisa Reorder Point (ROP)")
 
-    # --- FUNGSI-FUNGSI BARU UNTUK PERHITUNGAN ROP YANG CEPAT ---
-    @st.cache_data(ttl=3600) # Cache hasil perhitungan selama 1 jam
+    @st.cache_data(ttl=3600)
     def calculate_rop_vectorized(penjualan_df, produk_df, start_date, end_date):
-        # 1. Siapkan kerangka data lengkap (setiap produk, setiap kota, setiap hari)
+        # 1. Siapkan kerangka data lengkap
         analysis_start_date = pd.to_datetime(start_date) - pd.DateOffset(days=90)
         date_range_full = pd.date_range(start=analysis_start_date, end=end_date, freq='D')
         
@@ -213,84 +189,70 @@ elif page == "Hasil Analisa ROP":
         daily_sales.rename(columns={'Tgl Faktur': 'Date'}, inplace=True)
         
         full_df = pd.merge(full_df, daily_sales, on=['Date', 'City', 'No. Barang'], how='left').fillna(0)
+        
+        # Urutkan nilai untuk memastikan kalkulasi rolling window benar
+        full_df.sort_values(['City', 'No. Barang', 'Date'], inplace=True)
 
-        # 3. Hitung WMA secara vectorized menggunakan rolling window
-        # PENTING: sort=False untuk menjaga urutan indeks agar tidak error
-        grouped = full_df.groupby(['City', 'No. Barang'], sort=False)
-        
-        sales_30d = grouped['Kuantitas'].rolling(window=30, min_periods=1).sum().reset_index(0, drop=True)
-        sales_60d = grouped['Kuantitas'].rolling(window=60, min_periods=1).sum().reset_index(0, drop=True)
-        sales_90d = grouped['Kuantitas'].rolling(window=90, min_periods=1).sum().reset_index(0, drop=True)
-        
+        # 3. Hitung WMA & Std Dev menggunakan .transform untuk menjamin keamanan indeks
+        g = full_df.groupby(['City', 'No. Barang'])
+        sales_30d = g['Kuantitas'].transform(lambda x: x.rolling(window=30, min_periods=1).sum())
+        sales_60d = g['Kuantitas'].transform(lambda x: x.rolling(window=60, min_periods=1).sum())
+        sales_90d = g['Kuantitas'].transform(lambda x: x.rolling(window=90, min_periods=1).sum())
+        std_dev_90d = g['Kuantitas'].transform(lambda x: x.rolling(window=90, min_periods=1).std())
+
         full_df['WMA'] = (sales_30d * 0.5) + ((sales_60d - sales_30d) * 0.3) + ((sales_90d - sales_60d) * 0.2)
+
+        # 4. Klasifikasi ABC (hanya untuk menentukan Z-Score)
+        avg_sales = full_df.groupby(['City', 'No. Barang'])['WMA'].mean().reset_index()
         
-        # 4. Hitung Safety Stock secara vectorized
-        std_dev_90d = grouped['Kuantitas'].rolling(window=90, min_periods=1).std().reset_index(0, drop=True).fillna(0)
-        
-        total_sales_per_item = full_df.groupby(['City', 'No. Barang'])['WMA'].mean().reset_index()
-        total_sales_per_item = total_sales_per_item.rename(columns={'WMA': 'Avg_WMA_Period'})
-        
-        def classify_abc_vectorized(df_city):
-            df_city = df_city.sort_values(by='Avg_WMA_Period', ascending=False)
-            df_city['Cumulative_Sum'] = df_city['Avg_WMA_Period'].cumsum()
-            total_city_sales = df_city['Avg_WMA_Period'].sum()
-            if total_city_sales > 0:
-                df_city['Cumulative_Perc'] = 100 * df_city['Cumulative_Sum'] / total_city_sales
-                df_city['Kategori ABC'] = pd.cut(df_city['Cumulative_Perc'], bins=[0, 70, 90, 100], labels=['A', 'B', 'C'], right=True)
-                df_city['Kategori ABC'] = df_city['Kategori ABC'].cat.add_categories('D').fillna('D')
+        def classify_abc(df_city):
+            df_city = df_city.sort_values(by='WMA', ascending=False)
+            total_sales = df_city['WMA'].sum()
+            if total_sales > 0:
+                df_city['Cumulative_Perc'] = 100 * df_city['WMA'].cumsum() / total_sales
+                df_city['Kategori ABC'] = pd.cut(df_city['Cumulative_Perc'], bins=[-1, 70, 90, 101], labels=['A', 'B', 'C'], right=True)
             else:
                 df_city['Kategori ABC'] = 'D'
             return df_city[['No. Barang', 'Kategori ABC']]
-        
-        abc_classification = total_sales_per_item.groupby('City', group_keys=False).apply(classify_abc_vectorized)
+
+        abc_classification = avg_sales.groupby('City', group_keys=False).apply(classify_abc)
         full_df = pd.merge(full_df, abc_classification, on=['City', 'No. Barang'], how='left')
 
+        # 5. Hitung Safety Stock, Min Stock, dan ROP
         z_scores = {'A': 1.65, 'B': 1.0, 'C': 0.0, 'D': 0.0}
         full_df['Z_Score'] = full_df['Kategori ABC'].map(z_scores).fillna(0)
-        lead_time = 0.7
-        full_df['Safety Stock'] = full_df['Z_Score'] * std_dev_90d * math.sqrt(lead_time)
-
-        # 5. Hitung Min Stock dan ROP
+        full_df['Safety Stock'] = full_df['Z_Score'] * std_dev_90d.fillna(0) * math.sqrt(0.7)
         full_df['Min Stock'] = full_df['WMA'] * (21/30)
         full_df['ROP'] = full_df['Min Stock'] + full_df['Safety Stock']
 
-        # 6. Finalisasi & filter rentang tanggal yang diminta
+        # 6. Finalisasi
         final_df = pd.merge(full_df, produk_df, on='No. Barang', how='left')
         final_df = final_df[final_df['Date'].dt.date >= start_date]
         final_df['ROP'] = final_df['ROP'].round().astype(int)
         
         return final_df[['Date', 'City', 'No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang', 'ROP']]
 
-    # --- Cek prasyarat data ---
+    # --- UI & Logika Halaman ---
     if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
-        st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
+        st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'**.")
         st.stop()
 
-    # --- Preprocessing Data ---
     with st.spinner("Menyiapkan data..."):
         penjualan = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
-
         for df in [penjualan, produk_ref]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
-
-        penjualan.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
         penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
         penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
         penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
         penjualan.dropna(subset=['Tgl Faktur'], inplace=True)
     
     st.markdown("---")
-
-    # --- UI untuk memilih rentang tanggal ---
     st.header("Pilih Rentang Tanggal untuk Perhitungan ROP")
+    
     default_end_date = penjualan['Tgl Faktur'].max().date()
-    # Atur default tanggal awal 3 bulan sebelumnya jika data tersedia
-    three_months_ago = default_end_date - pd.DateOffset(months=3)
-    min_data_date = penjualan['Tgl Faktur'].min().date()
-    default_start_date = max(three_months_ago.date(), min_data_date)
-
+    default_start_date = default_end_date - timedelta(days=89)
 
     col1, col2 = st.columns(2)
     start_date = col1.date_input("Tanggal Awal", value=default_start_date, key="rop_start")
@@ -300,25 +262,23 @@ elif page == "Hasil Analisa ROP":
         if start_date > end_date:
             st.error("Tanggal Awal tidak boleh melebihi Tanggal Akhir.")
         else:
-            with st.spinner(f"Menghitung ROP dari {start_date} hingga {end_date}. Ini mungkin butuh beberapa saat untuk rentang yang panjang..."):
+            with st.spinner(f"Menghitung ROP dari {start_date} hingga {end_date}..."):
                 try:
                     rop_result_df = calculate_rop_vectorized(penjualan, produk_ref, start_date, end_date)
                     if not rop_result_df.empty:
                         st.session_state.rop_analysis_result = rop_result_df
                         st.success(f"Analisis ROP berhasil dijalankan!")
                     else:
-                        st.error("Tidak ada data yang dihasilkan. Periksa rentang tanggal dan data input.")
-                        st.session_state.rop_analysis_result = None
+                        st.error("Tidak ada data yang dihasilkan.")
                 except Exception as e:
                     st.error(f"Terjadi kesalahan saat perhitungan: {e}")
-                    st.session_state.rop_analysis_result = None
+                    st.exception(e) # Menampilkan detail error untuk debugging
 
-    # --- Tampilkan hasil jika ada ---
     if st.session_state.rop_analysis_result is not None:
         result_df = st.session_state.rop_analysis_result.copy()
         
-        # --- UI Filter ---
         st.markdown("---"); st.header("🔍 Filter Hasil")
+        # ... (UI Filter tidak berubah)
         col_f1, col_f2, col_f3 = st.columns(3)
         selected_kategori = col_f1.multiselect("Kategori:", sorted(result_df['Kategori Barang'].dropna().unique().astype(str)))
         selected_brand = col_f2.multiselect("Brand:", sorted(result_df['BRAND Barang'].dropna().unique().astype(str)))
@@ -330,34 +290,25 @@ elif page == "Hasil Analisa ROP":
         
         st.markdown("---")
         
-        # --- Tabel per Kota ---
         st.header("Tabel ROP per Kota")
         for city in sorted(result_df['City'].unique()):
             with st.expander(f"📍 Lihat Hasil ROP untuk Kota: {city}"):
                 city_df = result_df[result_df['City'] == city]
                 if not city_df.empty:
-                    pivot_city = city_df.pivot_table(
-                        index=['No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang'],
-                        columns=city_df['Date'].dt.date,
-                        values='ROP'
-                    ).fillna(0).astype(int)
+                    pivot_city = city_df.pivot_table(index=['No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang'], columns=city_df['Date'].dt.date, values='ROP').fillna(0).astype(int)
                     st.dataframe(pivot_city, use_container_width=True)
                 else:
                     st.write("Tidak ada data yang cocok dengan filter.")
 
-        # --- Tabel Gabungan Semua Kota ---
         st.header("📊 Tabel Gabungan ROP Seluruh Kota")
         if not result_df.empty:
             with st.spinner("Membuat tabel pivot gabungan..."):
-                total_rop = result_df.groupby(['Date', 'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang'])['ROP'].sum().reset_index()
-                pivot_all = total_rop.pivot_table(
-                    index=['No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang'],
-                    columns=total_rop['Date'].dt.date,
-                    values='ROP'
-                ).fillna(0).astype(int)
+                pivot_all = result_df.pivot_table(index=['No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang'], columns=result_df['Date'].dt.date, values='ROP', aggfunc='sum').fillna(0).astype(int)
                 st.dataframe(pivot_all, use_container_width=True)
         else:
             st.warning("Tidak ada data untuk ditampilkan berdasarkan filter.")
+        
+        st.header("💾 Unduh Hasil Analisis ROP")
 
         # --- Fungsi Unduh ---
         st.header("💾 Unduh Hasil Analisis ROP")
@@ -374,3 +325,4 @@ elif page == "Hasil Analisa ROP":
             file_name=f"Hasil_Analisis_ROP_{start_date}_sd_{end_date}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
