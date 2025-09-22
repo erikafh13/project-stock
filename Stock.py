@@ -251,7 +251,7 @@ elif page == "Hasil Analisa Stock":
         return [x for x in data if abs(x - avg) <= threshold * std]
 
     def get_z_score(category, volatility):
-        base_z = {'A': 1.65, 'B': 1.0, 'C': 0.0, 'D': 0.0}.get(category, 0.0)
+        base_z = {'A': 1.0, 'B': 1.0, 'C': 0.0, 'D': 0.0}.get(category, 0.0)
         if volatility > 1.5: return base_z + 0.2
         elif volatility < 0.5: return base_z - 0.2
         return base_z
@@ -726,4 +726,5 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+
 
