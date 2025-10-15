@@ -87,29 +87,24 @@ def preprocess_penjualan_data(df_raw):
 
     # Fungsi internal untuk mapping nama department (diambil dari kode asli)
     def map_nama_dept(row):
-        dept = row.get('Dept.', '')  # Ambil 'Dept.' dengan aman
-        pelanggan = str(row.get('Nama Pelanggan', ''))
-        
-        dept_map = {
-            'A': 'A - ITC' if not re.search('TOKOPEDIA|AIRPAY', pelanggan, re.IGNORECASE) else 'A - MP',
-            'B': 'B - JKT', 'C': 'C - PUSAT', 'D': 'D - SBY',
-            'E': 'E - MDN', 'F': 'F - BLI', 'H': 'H - JKT',
-            'I': 'I - MDN', 'J': 'J - BLI', 'Y': 'Y - SBY'
-        }
-        return dept_map.get(dept, dept)
+        # --- PERBAIKAN: Membersihkan input 'Dept.' agar lebih tangguh ---
+        dept = str(row.get('Dept.', '')).strip().upper()
+        pelanggan = str(row.get('Nama Pelanggan', '')).strip().upper()
+        if dept == 'A':
+            if pelanggan in ['A - CASH', 'AIRPAY INTERNATIONAL INDONESIA', 'TOKOPEDIA']: return 'A - ITC'
+            else: return 'A - RETAIL'
+        mapping = {'B': 'B - JKT', 'C': 'C - PUSAT', 'D': 'D - SMG','E': 'E - JOG', 'F': 'F - MLG', 'G': 'G - PROJECT','H': 'H - BALI', 'X': 'X'}
+        return mapping.get(dept, 'X')
 
     # Fungsi internal untuk mapping ke city (diambil dari kode asli)
     def map_city(nama_dept):
-        city_map = {
-            'Surabaya': ['A - ITC', 'A - MP', 'C - PUSAT', 'D - SBY', 'Y - SBY'],
-            'Jakarta': ['B - JKT', 'H - JKT'],
-            'Medan': ['E - MDN', 'I - MDN'],
-            'Bali': ['F - BLI', 'J - BLI']
-        }
-        for city, depts in city_map.items():
-            if nama_dept in depts:
-                return city
-        return None
+        if nama_dept in ['A - ITC', 'A - RETAIL', 'C - PUSAT', 'G - PROJECT']: return 'Surabaya'
+        elif nama_dept == 'B - JKT': return 'Jakarta'
+        elif nama_dept == 'D - SMG': return 'Semarang'
+        elif nama_dept == 'E - JOG': return 'Jogja'
+        elif nama_dept == 'F - MLG': return 'Malang'
+        elif nama_dept == 'H - BALI': return 'Bali'
+        else: return 'Others'
 
     # 1. Terapkan mapping bertingkat persis seperti kode asli
     df['nama_dept'] = df.apply(map_nama_dept, axis=1)
