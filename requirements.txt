@@ -1,8 +1,10 @@
 streamlit
 pandas
 numpy
-google-auth-oauthlib
-google-api-python-client
+matplotlib
 openpyxl
 xlrd
-matplotlib
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+XlsxWriter
