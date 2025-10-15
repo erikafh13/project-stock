@@ -76,7 +76,7 @@ def download_and_read_file(service, file_id, file_name, is_produk_ref=False):
         st.error(f"Gagal membaca file '{file_name}'. Detail: {e}")
         return pd.DataFrame()
 
-# --- FUNGSI PREPROCESSING & ANALISIS (KUNCI UTAMA) ---
+# --- FUNGSI PREPROCESSING & ANALISIS ---
 
 def preprocess_penjualan_data(df_raw):
     """
@@ -84,33 +84,29 @@ def preprocess_penjualan_data(df_raw):
     menggunakan logika mapping yang persis sama dengan Stock (3).py.
     """
     df = df_raw.copy()
-
-    # Fungsi internal untuk mapping nama department (diambil dari kode asli)
     def map_nama_dept(row):
-        # --- PERBAIKAN: Membersihkan input 'Dept.' agar lebih tangguh ---
-        dept = str(row.get('Dept.', '')).strip().upper()
-        pelanggan = str(row.get('Nama Pelanggan', '')).strip().upper()
-        if dept == 'A':
-            if pelanggan in ['A - CASH', 'AIRPAY INTERNATIONAL INDONESIA', 'TOKOPEDIA']: return 'A - ITC'
-            else: return 'A - RETAIL'
-        mapping = {'B': 'B - JKT', 'C': 'C - PUSAT', 'D': 'D - SMG','E': 'E - JOG', 'F': 'F - MLG', 'G': 'G - PROJECT','H': 'H - BALI', 'X': 'X'}
-        return mapping.get(dept, 'X')
-
-    # Fungsi internal untuk mapping ke city (diambil dari kode asli)
+        dept = row.get('Dept.', '')
+        pelanggan = str(row.get('Nama Pelanggan', ''))
+        dept_map = {
+            'A': 'A - ITC' if not re.search('TOKOPEDIA|AIRPAY', pelanggan, re.IGNORECASE) else 'A - MP',
+            'B': 'B - JKT', 'C': 'C - PUSAT', 'D': 'D - SBY',
+            'E': 'E - MDN', 'F': 'F - BLI', 'H': 'H - JKT',
+            'I': 'I - MDN', 'J': 'J - BLI', 'Y': 'Y - SBY'
+        }
+        return dept_map.get(dept, dept)
     def map_city(nama_dept):
-        if nama_dept in ['A - ITC', 'A - RETAIL', 'C - PUSAT', 'G - PROJECT']: return 'Surabaya'
-        elif nama_dept == 'B - JKT': return 'Jakarta'
-        elif nama_dept == 'D - SMG': return 'Semarang'
-        elif nama_dept == 'E - JOG': return 'Jogja'
-        elif nama_dept == 'F - MLG': return 'Malang'
-        elif nama_dept == 'H - BALI': return 'Bali'
-        else: return 'Others'
-
-    # 1. Terapkan mapping bertingkat persis seperti kode asli
+        city_map = {
+            'Surabaya': ['A - ITC', 'A - MP', 'C - PUSAT', 'D - SBY', 'Y - SBY'],
+            'Jakarta': ['B - JKT', 'H - JKT'],
+            'Medan': ['E - MDN', 'I - MDN'],
+            'Bali': ['F - BLI', 'J - BLI']
+        }
+        for city, depts in city_map.items():
+            if nama_dept in depts:
+                return city
+        return None
     df['nama_dept'] = df.apply(map_nama_dept, axis=1)
     df['City'] = df['nama_dept'].apply(map_city)
-
-    # 2. Ganti nama kolom agar konsisten
     rename_map = {
         'No. Faktur': 'No_Invoice',
         'Tgl Faktur': 'Tgl_Invoice',
@@ -118,8 +114,6 @@ def preprocess_penjualan_data(df_raw):
         'Qty': 'Kuantitas'
     }
     df.rename(columns=rename_map, inplace=True)
-
-    # 3. Bersihkan data & konversi tipe data
     df.dropna(subset=['City'], inplace=True)
     df['Tgl_Invoice'] = pd.to_datetime(df['Tgl_Invoice'])
     return df
@@ -159,8 +153,10 @@ def convert_df_to_excel(df):
 # --- UI & LOGIKA APLIKASI ---
 # =============================================================================
 
-st.sidebar.image("https://i.imgur.com/n0KzG1p.png", use_container_width=True)
+# --- PERBAIKAN WARNING: Menghilangkan `use_container_width` ---
+st.sidebar.image("https://i.imgur.com/n0KzG1p.png")
 st.sidebar.title("Analisis ABC")
+
 page = st.sidebar.radio("Menu Navigasi:",("Input Data", "Hasil Analisa ABC"))
 st.sidebar.markdown("---")
 
@@ -217,7 +213,6 @@ elif page == "Hasil Analisa ABC":
     else:
         st.sidebar.header("Filter Analisis ABC")
         try:
-            # --- MENGGUNAKAN FUNGSI PREPROCESSING BARU ---
             df_penjualan = preprocess_penjualan_data(st.session_state.df_penjualan)
             produk_ref = st.session_state.produk_ref.copy()
             
@@ -243,8 +238,6 @@ elif page == "Hasil Analisa ABC":
                         
                         cities = sales_metric['City'].unique()
                         produk_cols_to_merge = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
-                        
-                        # Filter produk_ref agar hanya berisi kolom yang dibutuhkan
                         produk_ref_filtered = produk_ref[produk_cols_to_merge]
                         
                         all_products_all_cities = [produk_ref_filtered.assign(City=city) for city in cities]
