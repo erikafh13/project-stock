@@ -5,6 +5,7 @@ from io import BytesIO
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import os
+import re
 
 # Impor library untuk integrasi Google Drive
 from google.oauth2 import service_account
@@ -16,30 +17,23 @@ import io
 # --- KONFIGURASI & FUNGSI-FUNGSI UTAMA ---
 # =============================================================================
 
-# Konfigurasi awal halaman Streamlit
 st.set_page_config(layout="wide", page_title="Analisis ABC")
 
 # --- FUNGSI-FUNGSI GOOGLE DRIVE & PEMBACAAN FILE ---
 
 @st.cache_resource
 def get_drive_service():
-    """Membuat koneksi ke Google Drive API dan mengembalikannya."""
+    """Membuat koneksi ke Google Drive API."""
     SCOPES = ['https://www.googleapis.com/auth/drive']
     credentials = None
     try:
         if "gcp_service_account" in st.secrets:
-            credentials = service_account.Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"], scopes=SCOPES
-            )
+            credentials = service_account.Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=SCOPES)
             st.sidebar.success("Terhubung ke Google Drive (Cloud).", icon="☁️")
         elif os.path.exists("credentials.json"):
-            credentials = service_account.Credentials.from_service_account_file(
-                'credentials.json', scopes=SCOPES
-            )
+            credentials = service_account.Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
             st.sidebar.success("Terhubung ke Google Drive (Lokal).", icon="💻")
-        
-        if credentials:
-            return build('drive', 'v3', credentials=credentials)
+        if credentials: return build('drive', 'v3', credentials=credentials)
         st.sidebar.error("Kredensial Google Drive tidak ditemukan.")
         return None
     except Exception as e:
@@ -59,11 +53,7 @@ def list_files_in_folder(_service, folder_id):
         return []
 
 def download_and_read_file(service, file_id, file_name, is_produk_ref=False):
-    """
-    Fungsi serbaguna untuk mengunduh dan membaca file dari Google Drive.
-    Secara otomatis menangani format .xls, .xlsx, dan .csv.
-    Memiliki logika khusus untuk file referensi produk.
-    """
+    """Fungsi serbaguna untuk mengunduh dan membaca file dari Google Drive."""
     try:
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -71,28 +61,96 @@ def download_and_read_file(service, file_id, file_name, is_produk_ref=False):
         done = False
         while not done: status, done = downloader.next_chunk()
         fh.seek(0)
-        
         file_ext = file_name.lower().split('.')[-1]
         engine = 'xlrd' if file_ext == 'xls' else 'openpyxl'
-
         if is_produk_ref:
-            # Logika spesifik untuk file referensi produk
             df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3], engine=engine)
             df.columns = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
         elif file_ext in ['xlsx', 'xls']:
-            # Logika umum untuk file penjualan Excel
             df = pd.read_excel(fh, engine=engine)
-        elif file_ext == 'csv':
-            df = pd.read_csv(fh)
         else:
             st.warning(f"Format file '{file_name}' tidak didukung.")
             return pd.DataFrame()
         return df
-
     except Exception as e:
-        st.error(f"Gagal membaca file '{file_name}'.")
-        st.info(f"Detail Error: {e}. Pastikan format file dan nama sheet sudah benar.")
+        st.error(f"Gagal membaca file '{file_name}'. Detail: {e}")
         return pd.DataFrame()
+
+# --- FUNGSI PREPROCESSING & ANALISIS (KUNCI UTAMA) ---
+
+def preprocess_penjualan_data(df_raw):
+    """
+    Membersihkan dan mempersiapkan data penjualan untuk analisis,
+    menggunakan logika mapping yang persis sama dengan Stock (3).py.
+    """
+    df = df_raw.copy()
+
+    # Fungsi internal untuk mapping nama department (diambil dari kode asli)
+    def map_nama_dept(row):
+        dept = row.get('Dept.', '')  # Ambil 'Dept.' dengan aman
+        pelanggan = str(row.get('Nama Pelanggan', ''))
+        
+        dept_map = {
+            'A': 'A - ITC' if not re.search('TOKOPEDIA|AIRPAY', pelanggan, re.IGNORECASE) else 'A - MP',
+            'B': 'B - JKT', 'C': 'C - PUSAT', 'D': 'D - SBY',
+            'E': 'E - MDN', 'F': 'F - BLI', 'H': 'H - JKT',
+            'I': 'I - MDN', 'J': 'J - BLI', 'Y': 'Y - SBY'
+        }
+        return dept_map.get(dept, dept)
+
+    # Fungsi internal untuk mapping ke city (diambil dari kode asli)
+    def map_city(nama_dept):
+        city_map = {
+            'Surabaya': ['A - ITC', 'A - MP', 'C - PUSAT', 'D - SBY', 'Y - SBY'],
+            'Jakarta': ['B - JKT', 'H - JKT'],
+            'Medan': ['E - MDN', 'I - MDN'],
+            'Bali': ['F - BLI', 'J - BLI']
+        }
+        for city, depts in city_map.items():
+            if nama_dept in depts:
+                return city
+        return None
+
+    # 1. Terapkan mapping bertingkat persis seperti kode asli
+    df['nama_dept'] = df.apply(map_nama_dept, axis=1)
+    df['City'] = df['nama_dept'].apply(map_city)
+
+    # 2. Ganti nama kolom agar konsisten
+    rename_map = {
+        'No. Faktur': 'No_Invoice',
+        'Tgl Faktur': 'Tgl_Invoice',
+        'Dept.': 'Kode_Dept',
+        'Qty': 'Kuantitas'
+    }
+    df.rename(columns=rename_map, inplace=True)
+
+    # 3. Bersihkan data & konversi tipe data
+    df.dropna(subset=['City'], inplace=True)
+    df['Tgl_Invoice'] = pd.to_datetime(df['Tgl_Invoice'])
+    return df
+
+def classify_abc_dynamic(df, metric_col):
+    """Mengklasifikasikan produk ke dalam kategori A, B, C, atau D."""
+    df_sales = df[df[metric_col] > 0].copy()
+    df_no_sales = df[df[metric_col] <= 0].copy()
+    df_no_sales['Kategori_ABC'] = 'D'
+    df_no_sales['Kontribusi'] = 0
+    df_no_sales['Kontribusi_Kumulatif'] = 1
+    if not df_sales.empty:
+        df_sales = df_sales.sort_values(by=metric_col, ascending=False)
+        total_metric = df_sales[metric_col].sum()
+        df_sales['Kontribusi'] = (df_sales[metric_col] / total_metric)
+        df_sales['Kontribusi_Kumulatif'] = df_sales['Kontribusi'].cumsum()
+        conditions = [
+            df_sales['Kontribusi_Kumulatif'] <= 0.70,
+            (df_sales['Kontribusi_Kumulatif'] > 0.70) & (df_sales['Kontribusi_Kumulatif'] <= 0.90)
+        ]
+        choices = ['A', 'B']
+        df_sales['Kategori_ABC'] = np.select(conditions, choices, default='C')
+        result_df = pd.concat([df_sales, df_no_sales], ignore_index=True)
+    else:
+        result_df = df_no_sales
+    return result_df.sort_values(by=['Kategori_ABC', metric_col], ascending=[True, False])
 
 @st.cache_data
 def convert_df_to_excel(df):
@@ -102,42 +160,12 @@ def convert_df_to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
-# --- FUNGSI ANALISIS ABC ---
-def classify_abc_dynamic(df, metric_col):
-    """Mengklasifikasikan produk ke dalam kategori A, B, C, atau D."""
-    df_sales = df[df[metric_col] > 0].copy()
-    df_no_sales = df[df[metric_col] <= 0].copy()
-    
-    df_no_sales['Kategori_ABC'] = 'D'
-    df_no_sales['Kontribusi'] = 0
-    df_no_sales['Kontribusi_Kumulatif'] = 1
-    
-    if not df_sales.empty:
-        df_sales = df_sales.sort_values(by=metric_col, ascending=False)
-        total_metric = df_sales[metric_col].sum()
-        df_sales['Kontribusi'] = (df_sales[metric_col] / total_metric)
-        df_sales['Kontribusi_Kumulatif'] = df_sales['Kontribusi'].cumsum()
-        
-        conditions = [
-            df_sales['Kontribusi_Kumulatif'] <= 0.70,
-            (df_sales['Kontribusi_Kumulatif'] > 0.70) & (df_sales['Kontribusi_Kumulatif'] <= 0.90)
-        ]
-        choices = ['A', 'B']
-        df_sales['Kategori_ABC'] = np.select(conditions, choices, default='C')
-        
-        result_df = pd.concat([df_sales, df_no_sales], ignore_index=True)
-    else:
-        result_df = df_no_sales
-
-    return result_df.sort_values(by=['Kategori_ABC', metric_col], ascending=[True, False])
-
 # =============================================================================
 # --- UI & LOGIKA APLIKASI ---
 # =============================================================================
 
 st.sidebar.image("https://i.imgur.com/n0KzG1p.png", use_container_width=True)
 st.sidebar.title("Analisis ABC")
-
 page = st.sidebar.radio("Menu Navigasi:",("Input Data", "Hasil Analisa ABC"))
 st.sidebar.markdown("---")
 
@@ -149,23 +177,19 @@ DRIVE_AVAILABLE = drive_service is not None
 folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
 folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
 
-# --- HALAMAN INPUT DATA ---
 if page == "Input Data":
     st.title("📥 Input Data")
     st.markdown("Muat data yang diperlukan dari Google Drive.")
-
     if not DRIVE_AVAILABLE:
-        st.warning("Koneksi ke Google Drive gagal. Periksa log di sidebar.")
+        st.warning("Koneksi ke Google Drive gagal.")
         st.stop()
-
     st.header("1. Data Penjualan")
     with st.spinner("Mencari file penjualan..."):
         penjualan_files_list = list_files_in_folder(drive_service, folder_penjualan)
         st.info(f"Ditemukan {len(penjualan_files_list)} file di folder penjualan.")
-
     if st.button("Muat / Muat Ulang Data Penjualan", type="primary"):
         if penjualan_files_list:
-            with st.spinner("Mengunduh dan menggabungkan semua file penjualan..."):
+            with st.spinner("Mengunduh dan menggabungkan file..."):
                 list_of_dfs = [download_and_read_file(drive_service, f['id'], f['name']) for f in penjualan_files_list]
                 valid_dfs = [df for df in list_of_dfs if not df.empty]
                 if valid_dfs:
@@ -173,62 +197,36 @@ if page == "Input Data":
                     st.success("Semua data penjualan berhasil digabungkan.")
                 else: st.error("Gagal memuat data dari semua file penjualan.")
         else: st.warning("⚠️ Tidak ada file penjualan ditemukan.")
-
     if not st.session_state.df_penjualan.empty:
         st.success(f"✅ Data penjualan dimuat: {len(st.session_state.df_penjualan)} baris.")
         st.dataframe(st.session_state.df_penjualan.head())
-    
     st.markdown("---")
-    
     st.header("2. Produk Referensi")
     with st.spinner("Mencari file produk..."):
         produk_files_list = list_files_in_folder(drive_service, folder_produk)
-
-    selected_produk_file = st.selectbox(
-        "Pilih file Produk dari Google Drive:",
-        options=[None] + produk_files_list,
-        format_func=lambda x: x['name'] if x else "Pilih file"
-    )
-
+    selected_produk_file = st.selectbox("Pilih file Produk dari Google Drive:", options=[None] + produk_files_list, format_func=lambda x: x['name'] if x else "Pilih file")
     if selected_produk_file:
         with st.spinner(f"Memuat file {selected_produk_file['name']}..."):
             df_produk = download_and_read_file(drive_service, selected_produk_file['id'], selected_produk_file['name'], is_produk_ref=True)
             if not df_produk.empty:
                  st.session_state.produk_ref = df_produk
                  st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
-
     if not st.session_state.produk_ref.empty:
          st.dataframe(st.session_state.produk_ref.head())
 
-# --- HALAMAN HASIL ANALISA ABC ---
 elif page == "Hasil Analisa ABC":
     st.title("📊 Hasil Analisa ABC")
     st.markdown("Klasifikasi produk berdasarkan kontribusi penjualannya.")
-
     if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
         st.warning("Data belum lengkap. Silakan muat file Penjualan dan Produk di halaman 'Input Data'.")
     else:
         st.sidebar.header("Filter Analisis ABC")
-        map_nama_dept = {'BL': 'Bali', 'JK': 'Jakarta', 'MD': 'Medan', 'SB': 'Surabaya'}
-        
-        df_penjualan_raw = st.session_state.df_penjualan.copy()
-        produk_ref = st.session_state.produk_ref.copy()
-        
         try:
-            # --- BLOK KRITIS YANG DIPERBAIKI ---
-            # Mengganti nama kolom yang sensitif terhadap huruf besar/kecil dari file asli
-            df_penjualan = df_penjualan_raw.rename(columns={
-                'No. Invoice': 'No_Invoice', 
-                'Tgl. Invoice': 'Tgl_Invoice', 
-                'DEPT': 'Kode_Dept' # <-- PERBAIKAN DARI 'Dept' MENJADI 'DEPT'
-            })
-            
-            df_penjualan['City'] = df_penjualan['Kode_Dept'].map(map_nama_dept)
-            df_penjualan = df_penjualan.dropna(subset=['City'])
-            df_penjualan['Tgl_Invoice'] = pd.to_datetime(df_penjualan['Tgl_Invoice'])
+            # --- MENGGUNAKAN FUNGSI PREPROCESSING BARU ---
+            df_penjualan = preprocess_penjualan_data(st.session_state.df_penjualan)
+            produk_ref = st.session_state.produk_ref.copy()
             
             period_option = st.sidebar.selectbox("Pilih Periode Waktu:", ("7 Hari Terakhir", "30 Hari Terakhir", "90 Hari Terakhir", "Kustom"))
-
             today = datetime.now().date()
             if period_option == "7 Hari Terakhir": start_date, end_date = today - timedelta(days=7), today
             elif period_option == "30 Hari Terakhir": start_date, end_date = today - timedelta(days=30), today
@@ -240,7 +238,6 @@ elif page == "Hasil Analisa ABC":
             if st.sidebar.button("Jalankan Analisis", type="primary"):
                 mask = (df_penjualan['Tgl_Invoice'].dt.date >= start_date) & (df_penjualan['Tgl_Invoice'].dt.date <= end_date)
                 filtered_sales = df_penjualan.loc[mask]
-
                 if filtered_sales.empty:
                     st.error("Tidak ada data penjualan pada rentang tanggal yang dipilih.")
                     if 'final_abc_result' in st.session_state: del st.session_state.final_abc_result
@@ -251,7 +248,11 @@ elif page == "Hasil Analisa ABC":
                         
                         cities = sales_metric['City'].unique()
                         produk_cols_to_merge = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
-                        all_products_all_cities = [produk_ref[produk_cols_to_merge].assign(City=city) for city in cities]
+                        
+                        # Filter produk_ref agar hanya berisi kolom yang dibutuhkan
+                        produk_ref_filtered = produk_ref[produk_cols_to_merge]
+                        
+                        all_products_all_cities = [produk_ref_filtered.assign(City=city) for city in cities]
                         full_product_list = pd.concat(all_products_all_cities, ignore_index=True)
                         
                         analysis_df = pd.merge(full_product_list, sales_metric, on=['City', 'No. Barang'], how='left').fillna(0)
@@ -314,7 +315,8 @@ elif page == "Hasil Analisa ABC":
                 st.info("Klik tombol 'Jalankan Analisis' di sidebar untuk melihat hasilnya.")
         
         except KeyError as e:
-            st.error(f"Error: Kolom yang dibutuhkan tidak ditemukan: {e}")
-            st.warning("Pastikan file Excel penjualan Anda memiliki kolom 'DEPT', 'No. Invoice', 'Tgl. Invoice', 'No. Barang', dan 'Kuantitas'. Periksa kembali nama kolom dan huruf besar/kecilnya.")
+            st.error(f"Error: Kolom yang dibutuhkan untuk mapping tidak ditemukan: {e}")
+            st.warning("Pastikan file Excel penjualan Anda memiliki kolom 'Dept.' dan 'Nama Pelanggan'. Cek kembali nama kolom di file asli.")
+            st.info(f"Nama kolom yang ada di data Anda: {st.session_state.df_penjualan.columns.to_list()}")
         except Exception as e:
             st.error(f"Terjadi error yang tidak terduga saat analisis: {e}")
