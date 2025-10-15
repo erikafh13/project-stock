@@ -79,8 +79,12 @@ def download_and_read_penjualan(service, file_id, file_name):
         st.error(f"Gagal membaca file penjualan {file_name}: {e}")
         return pd.DataFrame()
 
+# --- FUNGSI YANG DIPERBAIKI ---
 def read_produk_file(service, file_id, file_name):
-    """Mengunduh dan membaca file referensi produk dengan aturan spesifik."""
+    """
+    Mengunduh dan membaca file referensi produk dengan aturan spesifik,
+    dan secara otomatis memilih engine yang benar (.xls atau .xlsx).
+    """
     try:
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -89,14 +93,17 @@ def read_produk_file(service, file_id, file_name):
         while not done: status, done = downloader.next_chunk()
         fh.seek(0)
         
-        # Logika spesifik sesuai permintaan Anda
-        df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3], engine='openpyxl')
+        # Logika untuk memilih engine secara dinamis
+        file_ext = file_name.lower().split('.')[-1]
+        engine = 'xlrd' if file_ext == 'xls' else 'openpyxl'
+
+        df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3], engine=engine)
         df.columns = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
         return df
             
     except Exception as e:
-        st.error(f"Gagal membaca file produk {file_name} dengan format spesifik: {e}")
-        st.info("Pastikan file memiliki sheet 'Sheet1 (2)' dan format yang benar.")
+        st.error(f"Gagal membaca file produk '{file_name}' dengan format spesifik.")
+        st.info(f"Detail Error: {e}. Pastikan file memiliki sheet 'Sheet1 (2)' dan format yang benar.")
         return pd.DataFrame()
 
 @st.cache_data
@@ -199,7 +206,6 @@ if page == "Input Data":
 
     if selected_produk_file:
         with st.spinner(f"Memuat file {selected_produk_file['name']}..."):
-            # MEMANGGIL FUNGSI BARU DI SINI
             df_produk = read_produk_file(drive_service, selected_produk_file['id'], selected_produk_file['name'])
             if not df_produk.empty:
                  st.session_state.produk_ref = df_produk
@@ -250,7 +256,6 @@ elif page == "Hasil Analisa ABC":
                     sales_metric.rename(columns={'Kuantitas': 'Metrik_Penjualan'}, inplace=True)
                     
                     cities = sales_metric['City'].unique()
-                    # Pastikan kolom-kolom penting dari produk_ref disertakan
                     produk_cols_to_merge = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
                     all_products_all_cities = [produk_ref[produk_cols_to_merge].assign(City=city) for city in cities]
                     full_product_list = pd.concat(all_products_all_cities, ignore_index=True)
