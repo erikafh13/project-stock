@@ -63,18 +63,18 @@ def download_and_read(service, file_id, file_name):
             status, done = downloader.next_chunk()
         fh.seek(0)
         
-        # Tambahkan logika untuk membaca file berdasarkan ekstensinya
-        if file_name.endswith('.xlsx'):
+        # --- PERUBAHAN DI SINI ---
+        if file_name.lower().endswith('.xlsx'):
+            # Engine untuk format Excel modern
             return pd.read_excel(fh, engine='openpyxl')
-        elif file_name.endswith('.csv'):
+        elif file_name.lower().endswith('.xls'):
+            # Engine 'xlrd' untuk format Excel lama
+            return pd.read_excel(fh, engine='xlrd')
+        elif file_name.lower().endswith('.csv'):
             return pd.read_csv(fh)
         else:
             st.warning(f"Format file '{file_name}' tidak didukung.")
             return pd.DataFrame()
-            
-    except Exception as e:
-        st.error(f"Gagal membaca file {file_name}: {e}")
-        return pd.DataFrame()
 
 # Fungsi untuk mengonversi DataFrame ke Excel untuk diunduh
 @st.cache_data
