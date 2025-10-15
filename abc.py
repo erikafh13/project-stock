@@ -19,7 +19,7 @@ import io
 # Konfigurasi awal halaman Streamlit
 st.set_page_config(layout="wide", page_title="Analisis ABC")
 
-# --- FUNGSI-FUNGSI GOOGLE DRIVE & UMUM ---
+# --- FUNGSI-FUNGSI GOOGLE DRIVE & PEMBACAAN FILE ---
 
 @st.cache_resource
 def get_drive_service():
@@ -58,32 +58,11 @@ def list_files_in_folder(_service, folder_id):
         st.error(f"Gagal mengambil daftar file: {e}")
         return []
 
-def download_and_read_penjualan(service, file_id, file_name):
-    """Mengunduh file PENJUALAN dari Drive dan membacanya sebagai DataFrame."""
-    try:
-        request = service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done: status, done = downloader.next_chunk()
-        fh.seek(0)
-        
-        file_ext = file_name.lower().split('.')[-1]
-        if file_ext == 'xlsx': return pd.read_excel(fh, engine='openpyxl')
-        elif file_ext == 'xls': return pd.read_excel(fh, engine='xlrd')
-        elif file_ext == 'csv': return pd.read_csv(fh)
-        else:
-            st.warning(f"Format file penjualan '{file_name}' tidak didukung.")
-            return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Gagal membaca file penjualan {file_name}: {e}")
-        return pd.DataFrame()
-
-# --- FUNGSI YANG DIPERBAIKI ---
-def read_produk_file(service, file_id, file_name):
+def download_and_read_file(service, file_id, file_name, is_produk_ref=False):
     """
-    Mengunduh dan membaca file referensi produk dengan aturan spesifik,
-    dan secara otomatis memilih engine yang benar (.xls atau .xlsx).
+    Fungsi serbaguna untuk mengunduh dan membaca file dari Google Drive.
+    Secara otomatis menangani format .xls, .xlsx, dan .csv.
+    Memiliki logika khusus untuk file referensi produk.
     """
     try:
         request = service.files().get_media(fileId=file_id)
@@ -93,17 +72,26 @@ def read_produk_file(service, file_id, file_name):
         while not done: status, done = downloader.next_chunk()
         fh.seek(0)
         
-        # Logika untuk memilih engine secara dinamis
         file_ext = file_name.lower().split('.')[-1]
         engine = 'xlrd' if file_ext == 'xls' else 'openpyxl'
 
-        df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3], engine=engine)
-        df.columns = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
+        if is_produk_ref:
+            # Logika spesifik untuk file referensi produk
+            df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3], engine=engine)
+            df.columns = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
+        elif file_ext in ['xlsx', 'xls']:
+            # Logika umum untuk file penjualan Excel
+            df = pd.read_excel(fh, engine=engine)
+        elif file_ext == 'csv':
+            df = pd.read_csv(fh)
+        else:
+            st.warning(f"Format file '{file_name}' tidak didukung.")
+            return pd.DataFrame()
         return df
-            
+
     except Exception as e:
-        st.error(f"Gagal membaca file produk '{file_name}' dengan format spesifik.")
-        st.info(f"Detail Error: {e}. Pastikan file memiliki sheet 'Sheet1 (2)' dan format yang benar.")
+        st.error(f"Gagal membaca file '{file_name}'.")
+        st.info(f"Detail Error: {e}. Pastikan format file dan nama sheet sudah benar.")
         return pd.DataFrame()
 
 @st.cache_data
@@ -178,7 +166,7 @@ if page == "Input Data":
     if st.button("Muat / Muat Ulang Data Penjualan", type="primary"):
         if penjualan_files_list:
             with st.spinner("Mengunduh dan menggabungkan semua file penjualan..."):
-                list_of_dfs = [download_and_read_penjualan(drive_service, f['id'], f['name']) for f in penjualan_files_list]
+                list_of_dfs = [download_and_read_file(drive_service, f['id'], f['name']) for f in penjualan_files_list]
                 valid_dfs = [df for df in list_of_dfs if not df.empty]
                 if valid_dfs:
                     st.session_state.df_penjualan = pd.concat(valid_dfs, ignore_index=True)
@@ -189,8 +177,6 @@ if page == "Input Data":
     if not st.session_state.df_penjualan.empty:
         st.success(f"✅ Data penjualan dimuat: {len(st.session_state.df_penjualan)} baris.")
         st.dataframe(st.session_state.df_penjualan.head())
-        excel_data = convert_df_to_excel(st.session_state.df_penjualan)
-        st.download_button(label="📥 Unduh Data Penjualan (Excel)", data=excel_data, file_name="data_penjualan_gabungan.xlsx")
     
     st.markdown("---")
     
@@ -206,7 +192,7 @@ if page == "Input Data":
 
     if selected_produk_file:
         with st.spinner(f"Memuat file {selected_produk_file['name']}..."):
-            df_produk = read_produk_file(drive_service, selected_produk_file['id'], selected_produk_file['name'])
+            df_produk = download_and_read_file(drive_service, selected_produk_file['id'], selected_produk_file['name'], is_produk_ref=True)
             if not df_produk.empty:
                  st.session_state.produk_ref = df_produk
                  st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
@@ -228,103 +214,107 @@ elif page == "Hasil Analisa ABC":
         df_penjualan_raw = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
         
-        df_penjualan = df_penjualan_raw.rename(columns={'No. Invoice': 'No_Invoice', 'Tgl. Invoice': 'Tgl_Invoice', 'Dept': 'Kode_Dept'})
-        df_penjualan['City'] = df_penjualan['Kode_Dept'].map(map_nama_dept)
-        df_penjualan = df_penjualan.dropna(subset=['City'])
-        df_penjualan['Tgl_Invoice'] = pd.to_datetime(df_penjualan['Tgl_Invoice'])
-        
-        period_option = st.sidebar.selectbox("Pilih Periode Waktu:", ("7 Hari Terakhir", "30 Hari Terakhir", "90 Hari Terakhir", "Kustom"))
+        try:
+            # --- BLOK KRITIS YANG DIPERBAIKI ---
+            # Mengganti nama kolom yang sensitif terhadap huruf besar/kecil dari file asli
+            df_penjualan = df_penjualan_raw.rename(columns={
+                'No. Invoice': 'No_Invoice', 
+                'Tgl. Invoice': 'Tgl_Invoice', 
+                'DEPT': 'Kode_Dept' # <-- PERBAIKAN DARI 'Dept' MENJADI 'DEPT'
+            })
+            
+            df_penjualan['City'] = df_penjualan['Kode_Dept'].map(map_nama_dept)
+            df_penjualan = df_penjualan.dropna(subset=['City'])
+            df_penjualan['Tgl_Invoice'] = pd.to_datetime(df_penjualan['Tgl_Invoice'])
+            
+            period_option = st.sidebar.selectbox("Pilih Periode Waktu:", ("7 Hari Terakhir", "30 Hari Terakhir", "90 Hari Terakhir", "Kustom"))
 
-        today = datetime.now().date()
-        if period_option == "7 Hari Terakhir": start_date, end_date = today - timedelta(days=7), today
-        elif period_option == "30 Hari Terakhir": start_date, end_date = today - timedelta(days=30), today
-        elif period_option == "90 Hari Terakhir": start_date, end_date = today - timedelta(days=90), today
-        else: # Kustom
-            start_date = st.sidebar.date_input("Tanggal Mulai", today - timedelta(days=30))
-            end_date = st.sidebar.date_input("Tanggal Selesai", today)
+            today = datetime.now().date()
+            if period_option == "7 Hari Terakhir": start_date, end_date = today - timedelta(days=7), today
+            elif period_option == "30 Hari Terakhir": start_date, end_date = today - timedelta(days=30), today
+            elif period_option == "90 Hari Terakhir": start_date, end_date = today - timedelta(days=90), today
+            else: 
+                start_date = st.sidebar.date_input("Tanggal Mulai", today - timedelta(days=30))
+                end_date = st.sidebar.date_input("Tanggal Selesai", today)
 
-        if st.sidebar.button("Jalankan Analisis", type="primary"):
-            mask = (df_penjualan['Tgl_Invoice'].dt.date >= start_date) & (df_penjualan['Tgl_Invoice'].dt.date <= end_date)
-            filtered_sales = df_penjualan.loc[mask]
+            if st.sidebar.button("Jalankan Analisis", type="primary"):
+                mask = (df_penjualan['Tgl_Invoice'].dt.date >= start_date) & (df_penjualan['Tgl_Invoice'].dt.date <= end_date)
+                filtered_sales = df_penjualan.loc[mask]
 
-            if filtered_sales.empty:
-                st.error("Tidak ada data penjualan pada rentang tanggal yang dipilih.")
-                if 'final_abc_result' in st.session_state: del st.session_state.final_abc_result
+                if filtered_sales.empty:
+                    st.error("Tidak ada data penjualan pada rentang tanggal yang dipilih.")
+                    if 'final_abc_result' in st.session_state: del st.session_state.final_abc_result
+                else:
+                    with st.spinner("Melakukan kalkulasi ABC..."):
+                        sales_metric = filtered_sales.groupby(['City', 'No. Barang'])['Kuantitas'].sum().reset_index()
+                        sales_metric.rename(columns={'Kuantitas': 'Metrik_Penjualan'}, inplace=True)
+                        
+                        cities = sales_metric['City'].unique()
+                        produk_cols_to_merge = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
+                        all_products_all_cities = [produk_ref[produk_cols_to_merge].assign(City=city) for city in cities]
+                        full_product_list = pd.concat(all_products_all_cities, ignore_index=True)
+                        
+                        analysis_df = pd.merge(full_product_list, sales_metric, on=['City', 'No. Barang'], how='left').fillna(0)
+                        
+                        result_list = [classify_abc_dynamic(analysis_df[analysis_df['City'] == city], 'Metrik_Penjualan') for city in analysis_df['City'].unique()]
+                        st.session_state.final_abc_result = pd.concat(result_list, ignore_index=True)
+            
+            if 'final_abc_result' in st.session_state and not st.session_state.final_abc_result.empty:
+                result_display = st.session_state.final_abc_result.copy()
+                result_display['Kontribusi'] = (result_display['Kontribusi'] * 100).map('{:.2f}%'.format)
+                result_display['Kontribusi_Kumulatif'] = (result_display['Kontribusi_Kumulatif'] * 100).map('{:.2f}%'.format)
+
+                tab1, tab2 = st.tabs(["📑 Hasil Tabel", "📈 Dashboard"])
+
+                with tab1:
+                    st.header("Tabel Hasil Analisis ABC")
+                    excel_data = convert_df_to_excel(result_display)
+                    st.download_button(label="📥 Unduh Hasil (Excel)", data=excel_data, file_name=f'Analisis_ABC_{start_date}_to_{end_date}.xlsx')
+                    for city in sorted(result_display['City'].unique()):
+                        with st.expander(f"Hasil untuk Kota: {city}"):
+                            city_data = result_display[result_display['City'] == city]
+                            st.dataframe(city_data.style.apply(lambda row: ['background-color: #cce5ff']*len(row) if row.Kategori_ABC == 'A' else ['background-color: #d4edda']*len(row) if row.Kategori_ABC == 'B' else ['background-color: #fff3cd']*len(row) if row.Kategori_ABC == 'C' else ['background-color: #f8d7da']*len(row), axis=1))
+                
+                with tab2:
+                    st.header("Dashboard Visual")
+                    dash_df = st.session_state.final_abc_result.copy()
+                    abc_summary = dash_df.groupby('Kategori_ABC').agg(count=('No. Barang', 'size'), sum_metric=('Metrik_Penjualan', 'sum')).reset_index()
+                    total_sales = abc_summary['sum_metric'].sum()
+                    if total_sales > 0: abc_summary['sum_perc'] = (abc_summary['sum_metric'] / total_sales) * 100
+                    else: abc_summary['sum_perc'] = 0
+                    col1, col2, col3, col4 = st.columns(4)
+                    metrics = {'A': col1, 'B': col2, 'C': col3, 'D': col4}
+                    for category, col in metrics.items():
+                        data = abc_summary[abc_summary['Kategori_ABC'] == category]
+                        if not data.empty:
+                            col.metric(label=f"SKU Kelas {category}", value=f"{data['count'].iloc[0]}", help=f"Kontribusi: {data['sum_perc'].iloc[0]:.2f}% dari total penjualan")
+                        else: col.metric(label=f"SKU Kelas {category}", value="0")
+                    st.markdown("---")
+                    col_chart1, col_chart2 = st.columns(2)
+                    with col_chart1:
+                        st.subheader("Komposisi Produk per Kelas")
+                        fig1, ax1 = plt.subplots()
+                        ax1.pie(abc_summary['count'], labels=abc_summary['Kategori_ABC'], autopct='%1.1f%%', startangle=90, colors=['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da'])
+                        ax1.axis('equal')
+                        st.pyplot(fig1)
+                    with col_chart2:
+                        st.subheader("Kontribusi Penjualan per Kelas")
+                        st.bar_chart(abc_summary.set_index('Kategori_ABC')[['sum_perc']].rename(columns={'sum_perc': 'Kontribusi Penjualan (%)'}))
+                    st.markdown("---")
+                    col_top1, col_top2 = st.columns(2)
+                    with col_top1:
+                        st.subheader("Top 10 Produk Terlaris (Global)")
+                        top_products = dash_df.groupby('Nama Barang')['Metrik_Penjualan'].sum().nlargest(10)
+                        st.bar_chart(top_products)
+                    with col_top2:
+                        st.subheader("Total Penjualan per Kota")
+                        city_sales = dash_df.groupby('City')['Metrik_Penjualan'].sum().sort_values(ascending=False)
+                        st.bar_chart(city_sales)
             else:
-                with st.spinner("Melakukan kalkulasi ABC..."):
-                    sales_metric = filtered_sales.groupby(['City', 'No. Barang'])['Kuantitas'].sum().reset_index()
-                    sales_metric.rename(columns={'Kuantitas': 'Metrik_Penjualan'}, inplace=True)
-                    
-                    cities = sales_metric['City'].unique()
-                    produk_cols_to_merge = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
-                    all_products_all_cities = [produk_ref[produk_cols_to_merge].assign(City=city) for city in cities]
-                    full_product_list = pd.concat(all_products_all_cities, ignore_index=True)
-                    
-                    analysis_df = pd.merge(full_product_list, sales_metric, on=['City', 'No. Barang'], how='left').fillna(0)
-                    
-                    result_list = [classify_abc_dynamic(analysis_df[analysis_df['City'] == city], 'Metrik_Penjualan') for city in analysis_df['City'].unique()]
-                    st.session_state.final_abc_result = pd.concat(result_list, ignore_index=True)
+                st.info("Klik tombol 'Jalankan Analisis' di sidebar untuk melihat hasilnya.")
         
-        if 'final_abc_result' in st.session_state and not st.session_state.final_abc_result.empty:
-            result_display = st.session_state.final_abc_result.copy()
-            
-            result_display['Kontribusi'] = (result_display['Kontribusi'] * 100).map('{:.2f}%'.format)
-            result_display['Kontribusi_Kumulatif'] = (result_display['Kontribusi_Kumulatif'] * 100).map('{:.2f}%'.format)
-
-            tab1, tab2 = st.tabs(["📑 Hasil Tabel", "📈 Dashboard"])
-
-            with tab1:
-                st.header("Tabel Hasil Analisis ABC")
-                excel_data = convert_df_to_excel(result_display)
-                st.download_button(label="📥 Unduh Hasil (Excel)", data=excel_data, file_name=f'Analisis_ABC_{start_date}_to_{end_date}.xlsx')
-                
-                for city in sorted(result_display['City'].unique()):
-                    with st.expander(f"Hasil untuk Kota: {city}"):
-                        city_data = result_display[result_display['City'] == city]
-                        st.dataframe(city_data.style.apply(lambda row: ['background-color: #cce5ff']*len(row) if row.Kategori_ABC == 'A' else ['background-color: #d4edda']*len(row) if row.Kategori_ABC == 'B' else ['background-color: #fff3cd']*len(row) if row.Kategori_ABC == 'C' else ['background-color: #f8d7da']*len(row), axis=1))
-            
-            with tab2:
-                st.header("Dashboard Visual")
-                dash_df = st.session_state.final_abc_result.copy()
-                
-                abc_summary = dash_df.groupby('Kategori_ABC').agg(count=('No. Barang', 'size'), sum_metric=('Metrik_Penjualan', 'sum')).reset_index()
-                total_sales = abc_summary['sum_metric'].sum()
-                if total_sales > 0: abc_summary['sum_perc'] = (abc_summary['sum_metric'] / total_sales) * 100
-                else: abc_summary['sum_perc'] = 0
-
-                col1, col2, col3, col4 = st.columns(4)
-                metrics = {'A': col1, 'B': col2, 'C': col3, 'D': col4}
-                for category, col in metrics.items():
-                    data = abc_summary[abc_summary['Kategori_ABC'] == category]
-                    if not data.empty:
-                        col.metric(label=f"SKU Kelas {category}", value=f"{data['count'].iloc[0]}", help=f"Kontribusi: {data['sum_perc'].iloc[0]:.2f}% dari total penjualan")
-                    else: col.metric(label=f"SKU Kelas {category}", value="0")
-                
-                st.markdown("---")
-                
-                col_chart1, col_chart2 = st.columns(2)
-                with col_chart1:
-                    st.subheader("Komposisi Produk per Kelas")
-                    fig1, ax1 = plt.subplots()
-                    ax1.pie(abc_summary['count'], labels=abc_summary['Kategori_ABC'], autopct='%1.1f%%', startangle=90, colors=['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da'])
-                    ax1.axis('equal')
-                    st.pyplot(fig1)
-
-                with col_chart2:
-                    st.subheader("Kontribusi Penjualan per Kelas")
-                    st.bar_chart(abc_summary.set_index('Kategori_ABC')[['sum_perc']].rename(columns={'sum_perc': 'Kontribusi Penjualan (%)'}))
-                
-                st.markdown("---")
-                
-                col_top1, col_top2 = st.columns(2)
-                with col_top1:
-                    st.subheader("Top 10 Produk Terlaris (Global)")
-                    top_products = dash_df.groupby('Nama Barang')['Metrik_Penjualan'].sum().nlargest(10)
-                    st.bar_chart(top_products)
-                
-                with col_top2:
-                    st.subheader("Total Penjualan per Kota")
-                    city_sales = dash_df.groupby('City')['Metrik_Penjualan'].sum().sort_values(ascending=False)
-                    st.bar_chart(city_sales)
-        else:
-            st.info("Klik tombol 'Jalankan Analisis' di sidebar untuk melihat hasilnya.")
+        except KeyError as e:
+            st.error(f"Error: Kolom yang dibutuhkan tidak ditemukan: {e}")
+            st.warning("Pastikan file Excel penjualan Anda memiliki kolom 'DEPT', 'No. Invoice', 'Tgl. Invoice', 'No. Barang', dan 'Kuantitas'. Periksa kembali nama kolom dan huruf besar/kecilnya.")
+        except Exception as e:
+            st.error(f"Terjadi error yang tidak terduga saat analisis: {e}")
