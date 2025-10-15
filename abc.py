@@ -4,6 +4,7 @@ import numpy as np
 from io import BytesIO
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+import os
 
 # Impor library untuk integrasi Google Drive
 from google.oauth2 import service_account
@@ -16,52 +17,77 @@ import io
 # Konfigurasi awal halaman Streamlit
 st.set_page_config(layout="wide", page_title="Analisis ABC")
 
-# --- FUNGSI-FUNGSI GOOGLE DRIVE ---
+# --- FUNGSI-FUNGSI GOOGLE DRIVE & UMUM ---
 
-# Cache resource untuk koneksi ke Google API
 @st.cache_resource
-def get_service():
-    """Membuat dan mengembalikan service object untuk Google Drive API."""
-    creds_dict = st.secrets["gcp_service_account"]
-    creds = service_account.Credentials.from_service_account_info(creds_dict)
-    service = build('drive', 'v3', credentials=creds)
-    return service
-
-@st.cache_data
-def list_folders(_service, folder_id='root'):
-    """Mengambil daftar folder dari Google Drive."""
-    query = "mimeType='application/vnd.google-apps.folder'"
-    results = _service.files().list(q=query, pageSize=100, fields="nextPageToken, files(id, name)").execute()
-    items = results.get('files', [])
-    return {item['name']: item['id'] for item in items}
+def get_drive_service():
+    """Membuat koneksi ke Google Drive API dan mengembalikannya."""
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+    credentials = None
+    if "gcp_service_account" in st.secrets:
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], scopes=SCOPES
+        )
+        st.sidebar.success("Terhubung ke Google Drive (Cloud).", icon="☁️")
+    elif os.path.exists("credentials.json"):
+        credentials = service_account.Credentials.from_service_account_file(
+            'credentials.json', scopes=SCOPES
+        )
+        st.sidebar.success("Terhubung ke Google Drive (Lokal).", icon="💻")
+    
+    if credentials:
+        return build('drive', 'v3', credentials=credentials)
+    return None
 
 @st.cache_data
 def list_files_in_folder(_service, folder_id):
-    """Mengambil daftar file dalam folder tertentu, diurutkan dari yang terbaru."""
-    query = f"'{folder_id}' in parents"
-    results = _service.files().list(q=query, orderBy='createdTime desc', pageSize=10, fields="files(id, name)").execute()
-    return {item['name']: item['id'] for item in results.get('files', [])}
+    """Mengambil daftar file dalam folder tertentu."""
+    if not _service:
+        return []
+    try:
+        query = f"'{folder_id}' in parents and mimeType!='application/vnd.google-apps.folder'"
+        results = _service.files().list(q=query, fields="files(id, name)").execute()
+        return results.get('files', [])
+    except Exception as e:
+        st.error(f"Gagal mengambil daftar file: {e}")
+        return []
 
-def load_data_from_drive(service, file_id):
-    """Mengunduh dan memuat file Excel dari Google Drive ke DataFrame."""
-    request = service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    fh.seek(0)
-    return pd.read_excel(fh, engine='openpyxl')
+def download_and_read(service, file_id, file_name):
+    """Mengunduh file dari Drive dan membacanya sebagai DataFrame."""
+    try:
+        request = service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        fh.seek(0)
+        
+        # Tambahkan logika untuk membaca file berdasarkan ekstensinya
+        if file_name.endswith('.xlsx'):
+            return pd.read_excel(fh, engine='openpyxl')
+        elif file_name.endswith('.csv'):
+            return pd.read_csv(fh)
+        else:
+            st.warning(f"Format file '{file_name}' tidak didukung.")
+            return pd.DataFrame()
+            
+    except Exception as e:
+        st.error(f"Gagal membaca file {file_name}: {e}")
+        return pd.DataFrame()
+
+# Fungsi untuk mengonversi DataFrame ke Excel untuk diunduh
+@st.cache_data
+def convert_df_to_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
 
 # --- FUNGSI ANALISIS ABC ---
-
 def classify_abc_dynamic(df, metric_col):
     """
     Mengklasifikasikan produk ke dalam kategori A, B, C, atau D berdasarkan metrik penjualan.
-    - A: Top 70% kontribusi kumulatif
-    - B: 70% - 90% kontribusi kumulatif
-    - C: > 90% kontribusi kumulatif
-    - D: Metrik penjualan <= 0
     """
     df_sales = df[df[metric_col] > 0].copy()
     df_no_sales = df[df[metric_col] <= 0].copy()
@@ -89,15 +115,6 @@ def classify_abc_dynamic(df, metric_col):
 
     return result_df.sort_values(by=['Kategori_ABC', metric_col], ascending=[True, False])
 
-# Fungsi untuk mengonversi DataFrame ke Excel untuk diunduh
-@st.cache_data
-def to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-    processed_data = output.getvalue()
-    return processed_data
-
 # --- UI & LOGIKA APLIKASI ---
 
 # --- SIDEBAR & NAVIGASI ---
@@ -117,71 +134,79 @@ if 'df_penjualan' not in st.session_state:
 if 'produk_ref' not in st.session_state:
     st.session_state.produk_ref = pd.DataFrame()
 
+# Inisialisasi koneksi Google Drive
+drive_service = get_drive_service()
+DRIVE_AVAILABLE = drive_service is not None
+
+# Hardcode folder IDs
+folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
+folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
+
 # --- HALAMAN INPUT DATA ---
 if page == "Input Data":
-    st.title("📥 Input Data dari Google Drive")
-    st.markdown("Pilih folder di Google Drive yang berisi file data yang diperlukan. Sistem akan otomatis mengambil file **terbaru** dari folder yang dipilih.")
+    st.title("📥 Input Data")
+    st.markdown("Muat atau muat ulang data yang diperlukan dari Google Drive.")
 
-    try:
-        service = get_service()
-        all_folders = list_folders(service)
+    if not DRIVE_AVAILABLE:
+        st.warning("Tidak dapat melanjutkan karena koneksi ke Google Drive gagal. Periksa log di sidebar.")
+        st.stop()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("1. Folder Penjualan")
-            folder_penjualan = st.selectbox("Pilih folder untuk data penjualan:", options=list(all_folders.keys()), key="folder_jual")
+    st.header("1. Data Penjualan")
+    with st.spinner("Mencari file penjualan di Google Drive..."):
+        penjualan_files_list = list_files_in_folder(drive_service, folder_penjualan)
+        st.info(f"Ditemukan {len(penjualan_files_list)} file di folder penjualan.")
+
+    if st.button("Muat / Muat Ulang Data Penjualan"):
+        if penjualan_files_list:
+            with st.spinner("Mengunduh dan menggabungkan semua file penjualan..."):
+                list_of_dfs = [download_and_read(drive_service, f['id'], f['name']) for f in penjualan_files_list]
+                # Filter out empty dataframes that might result from errors
+                valid_dfs = [df for df in list_of_dfs if not df.empty]
+                if valid_dfs:
+                    df_penjualan = pd.concat(valid_dfs, ignore_index=True)
+                    st.session_state.df_penjualan = df_penjualan
+                    st.success("Semua data penjualan berhasil digabungkan dan dimuat ulang.")
+                else:
+                    st.error("Gagal memuat data dari semua file yang ditemukan.")
+        else:
+            st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive.")
+
+    if not st.session_state.df_penjualan.empty:
+        st.success(f"✅ Data penjualan telah dimuat. Total {len(st.session_state.df_penjualan)} baris.")
+        st.dataframe(st.session_state.df_penjualan.head())
         
-        with col2:
-            st.subheader("2. Folder Referensi Produk")
-            folder_produk = st.selectbox("Pilih folder untuk data referensi produk:", options=list(all_folders.keys()), key="folder_prod")
-
-        if st.button("Load Data dari Drive", type="primary"):
-            with st.spinner("Mengambil data dari Google Drive..."):
-                # Load data penjualan
-                if folder_penjualan:
-                    folder_id_penjualan = all_folders[folder_penjualan]
-                    files_penjualan = list_files_in_folder(service, folder_id_penjualan)
-                    if files_penjualan:
-                        latest_file_name = next(iter(files_penjualan))
-                        latest_file_id = files_penjualan[latest_file_name]
-                        st.session_state.df_penjualan = load_data_from_drive(service, latest_file_id)
-                        st.success(f"File penjualan '{latest_file_name}' berhasil dimuat.")
-                    else:
-                        st.error(f"Tidak ada file ditemukan di folder '{folder_penjualan}'.")
-
-                # Load data referensi produk
-                if folder_produk:
-                    folder_id_produk = all_folders[folder_produk]
-                    files_produk = list_files_in_folder(service, folder_id_produk)
-                    if files_produk:
-                        latest_file_name = next(iter(files_produk))
-                        latest_file_id = files_produk[latest_file_name]
-                        st.session_state.produk_ref = load_data_from_drive(service, latest_file_id)
-                        st.success(f"File referensi produk '{latest_file_name}' berhasil dimuat.")
-                    else:
-                        st.error(f"Tidak ada file ditemukan di folder '{folder_produk}'.")
-    except Exception as e:
-        st.error(f"Terjadi kesalahan saat terhubung ke Google Drive: {e}")
-        st.info("Pastikan Anda telah mengatur kredensial 'gcp_service_account' di Streamlit Secrets.")
+        excel_data = convert_df_to_excel(st.session_state.df_penjualan)
+        st.download_button(
+            label="📥 Unduh Data Penjualan Gabungan (Excel)",
+            data=excel_data,
+            file_name="data_penjualan_gabungan.xlsx"
+        )
 
     st.markdown("---")
-    st.header("Pratinjau Data yang Dimuat")
-    
-    if not st.session_state.df_penjualan.empty:
-        st.write("Data Penjualan:")
-        st.dataframe(st.session_state.df_penjualan.head())
-    else:
-        st.info("Data Penjualan belum dimuat.")
+    st.header("2. Produk Referensi")
+    with st.spinner("Mencari file produk di Google Drive..."):
+        produk_files_list = list_files_in_folder(drive_service, folder_produk)
+
+    selected_produk_file = st.selectbox(
+        "Pilih file Produk dari Google Drive (pilih 1 file):",
+        options=[None] + produk_files_list,
+        format_func=lambda x: x['name'] if x else "Pilih file"
+    )
+
+    if selected_produk_file:
+        with st.spinner(f"Memuat file {selected_produk_file['name']}..."):
+            df_produk = download_and_read(drive_service, selected_produk_file['id'], selected_produk_file['name'])
+            if not df_produk.empty:
+                 st.session_state.produk_ref = df_produk
+                 st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
 
     if not st.session_state.produk_ref.empty:
-        st.write("Data Referensi Produk:")
-        st.dataframe(st.session_state.produk_ref.head())
-    else:
-        st.info("Data Referensi Produk belum dimuat.")
+         st.dataframe(st.session_state.produk_ref.head())
+
 
 # --- HALAMAN HASIL ANALISA ABC ---
 elif page == "Hasil Analisa ABC":
-    # (Kode untuk halaman 'Hasil Analisa ABC' sama persis seperti kode sebelumnya, tidak perlu diubah)
+    # (Kode untuk halaman 'Hasil Analisa ABC' sama persis seperti kode sebelumnya, tidak ada perubahan)
     st.title("📊 Hasil Analisa ABC")
     st.markdown("Analisis ini mengklasifikasikan produk berdasarkan kontribusi penjualannya.")
 
@@ -219,7 +244,7 @@ elif page == "Hasil Analisa ABC":
             if filtered_sales.empty:
                 st.error("Tidak ada data penjualan pada rentang tanggal yang dipilih.")
                 if 'final_abc_result' in st.session_state:
-                    del st.session_state.final_abc_result # Hapus hasil lama jika ada
+                    del st.session_state.final_abc_result 
             else:
                 sales_metric = filtered_sales.groupby(['City', 'No. Barang'])['Kuantitas'].sum().reset_index()
                 sales_metric.rename(columns={'Kuantitas': 'Metrik_Penjualan'}, inplace=True)
@@ -244,7 +269,7 @@ elif page == "Hasil Analisa ABC":
 
             with tab1:
                 st.header("Tabel Hasil Analisis ABC")
-                excel_data = to_excel(result_display)
+                excel_data = convert_df_to_excel(result_display)
                 st.download_button(label="📥 Unduh Hasil sebagai Excel", data=excel_data, file_name=f'Analisis_ABC_{start_date}_to_{end_date}.xlsx')
                 
                 for city in sorted(result_display['City'].unique()):
