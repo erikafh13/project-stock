@@ -40,12 +40,24 @@ def list_files(folder_id):
 
 @st.cache_data(ttl=600)
 def read_drive_excel(file_id, skiprows=0, **kwargs):
+    req = drive_service.files().get(fileId=file_id, fields="name").execute()
+    file_name = req['name']
+
     req = drive_service.files().get_media(fileId=file_id)
     fh = BytesIO(); downloader = MediaIoBaseDownload(fh, req)
     done = False
-    while not done: _, done = downloader.next_chunk()
+    while not done:
+        _, done = downloader.next_chunk()
     fh.seek(0)
-    return pd.read_excel(fh, skiprows=skiprows, **kwargs)
+
+    # Pilih engine berdasarkan ekstensi
+    if file_name.lower().endswith('.xls'):
+        engine = 'xlrd'
+    else:
+        engine = 'openpyxl'
+
+    return pd.read_excel(fh, skiprows=skiprows, engine=engine, **kwargs)
+
 
 # --- MAPPING & PREPROCESSING ---
 def map_nama_dept(row):
