@@ -36,6 +36,11 @@ if 'produk_ref' not in st.session_state:
 # Bagian state 'df_stock', 'stock_filename', 'stock_analysis_result' dihapus
 if 'abc_analysis_result' not in st.session_state:
     st.session_state.abc_analysis_result = None
+# [BARU] Menambahkan state untuk metrik dan ketersediaan revenue
+if 'abc_metric' not in st.session_state:
+    st.session_state.abc_metric = 'Kuantitas'
+if 'revenue_available' not in st.session_state:
+    st.session_state.revenue_available = False
 
 
 # --------------------------------Fungsi Umum & Google Drive--------------------------------
@@ -178,8 +183,9 @@ if page == "Input Data":
             st.session_state.produk_ref = read_produk_file(selected_produk_file['id'])
             st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
     
-    # Baris 179 yang error sebelumnya
-    if not st.session_state.produk_ref.empty:
+    # Baris 182 yang error sebelumnya
+    # [DIUBAH] Menambahkan pengecekan 'produk_ref' in st.session_state untuk keamanan
+    if 'produk_ref' in st.session_state and not st.session_state.produk_ref.empty:
         st.dataframe(st.session_state.produk_ref.head())
 
     # Bagian "3. Data Stock" telah dihapus seluruhnya
@@ -232,11 +238,41 @@ elif page == "Hasil Analisa ABC":
                 
         so_df = all_so_df.copy()
         so_df.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
+
+        # --- [BARU] Perhitungan Revenue ---
+        if 'Harga Sat' in so_df.columns:
+            # Konversi Kuantitas dan Harga Sat ke numerik, paksa error jadi NaN
+            so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
+            so_df['Harga Sat'] = pd.to_numeric(so_df['Harga Sat'], errors='coerce')
+            
+            # Isi NaN di Kuantitas/Harga Sat dengan 0 agar perkalian tidak jadi NaN
+            so_df.fillna({'Kuantitas': 0, 'Harga Sat': 0}, inplace=True)
+            
+            so_df['Revenue'] = so_df['Kuantitas'] * so_df['Harga Sat']
+            st.session_state.revenue_available = True # Set state bahwa revenue ada
+        else:
+            st.warning("Kolom 'Harga Sat' tidak ditemukan. Analisis ABC hanya akan tersedia berdasarkan 'Kuantitas'.")
+            so_df['Revenue'] = 0 # Buat kolom revenue 0 agar tidak error
+            st.session_state.revenue_available = False # Set state bahwa revenue TDK ada
+        # --- Akhir [BARU] ---
+
         so_df['Nama Dept'] = so_df.apply(map_nama_dept, axis=1)
         so_df['City'] = so_df['Nama Dept'].apply(map_city)
         so_df['Tgl Faktur'] = pd.to_datetime(so_df['Tgl Faktur'], dayfirst=True, errors='coerce')
         so_df.dropna(subset=['Tgl Faktur'], inplace=True)
         
+        # --- [BARU] Preview Data Preprocessing ---
+        with st.expander("Lihat Data Penjualan Siap Analisis (Setelah Preprocessing)"):
+            st.dataframe(so_df)
+            excel_preview = convert_df_to_excel(so_df) # Menggunakan fungsi global yang sudah ada
+            st.download_button(
+                label="📥 Unduh Data Penjualan (Hasil Preprocessing)",
+                data=excel_preview,
+                file_name="data_penjualan_preprocessed.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        # --- Akhir [BARU] ---
+
         st.header("Filter Rentang Waktu Analisis ABC")
         today = datetime.now().date()
         date_option = st.selectbox("Pilih Rentang Waktu:",("7 Hari Terakhir", "30 Hari Terakhir", "90 Hari Terakhir", "Custom"))
@@ -252,8 +288,22 @@ elif page == "Hasil Analisa ABC":
             start_date = col1.date_input("Tanggal Awal", value=today - timedelta(days=29))
             end_date = col2.date_input("Tanggal Akhir", value=today)
             
+        # --- [BARU] Pilihan Metrik Analisis ---
+        metric_options = ['Kuantitas']
+        if st.session_state.revenue_available: # Cek apakah revenue berhasil dihitung
+            metric_options.append('Revenue')
+        
+        selected_metric = st.selectbox(
+            "Pilih Metrik untuk Analisis ABC:",
+            options=metric_options,
+            index=len(metric_options)-1 # Default ke Revenue jika ada, jika tidak, ke Kuantitas
+        )
+        # --- Akhir [BARU] ---
+            
         if st.button("Jalankan Analisa ABC"):
             with st.spinner("Melakukan perhitungan analisis ABC..."):
+                st.session_state.abc_metric = selected_metric # [BARU] Simpan metrik yang dipilih
+                
                 mask = (so_df['Tgl Faktur'].dt.date >= start_date) & (so_df['Tgl Faktur'].dt.date <= end_date)
                 so_df_filtered = so_df.loc[mask].copy()
                 
@@ -271,7 +321,10 @@ elif page == "Hasil Analisa ABC":
                     else:
                         kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
                         kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
-                        agg_so = so_df_filtered.groupby(['City', 'No. Barang'])['Kuantitas'].sum().reset_index(name='Metrik_Penjualan')
+                        
+                        # [DIUBAH] Menggunakan selected_metric untuk agregasi
+                        agg_so = so_df_filtered.groupby(['City', 'No. Barang'])[selected_metric].sum().reset_index(name='Metrik_Penjualan')
+                        
                         grouped = pd.merge(kombinasi, agg_so, on=['City', 'No. Barang'], how='left')
                         grouped['Metrik_Penjualan'] = grouped['Metrik_Penjualan'].fillna(0)
                         result = classify_abc_dynamic(grouped, metric_col='Metrik_Penjualan')
@@ -305,7 +358,9 @@ elif page == "Hasil Analisa ABC":
                     # Pastikan kolom ada sebelum menampilkannya
                     display_cols_order = [col for col in display_cols_order if col in city_df.columns]
                     df_city_display = city_df[display_cols_order]
-                    st.dataframe(df_city_display.style.format({'Metrik_Penjualan': '{:.2f}', '% kontribusi': '{:.2f}%', '% Kumulatif': '{:.2f}%'}).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), use_container_width=True)
+                    # [DIUBAH] Menambahkan format {:,} untuk Metrik Penjualan jika Revenue
+                    metric_format = '{:,.0f}' if st.session_state.abc_metric == 'Revenue' else '{:.2f}'
+                    st.dataframe(df_city_display.style.format({'Metrik_Penjualan': metric_format, '% kontribusi': '{:.2f}%', '% Kumulatif': '{:.2f}%'}).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), use_container_width=True)
             
             st.header("📊 Tabel Gabungan Seluruh Kota (ABC)")
             with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
@@ -347,7 +402,10 @@ elif page == "Hasil Analisa ABC":
 
 
     with tab2_abc:
-        st.header("📈 Dashboard Analisis ABC")
+        # [DIUBAH] Mengambil metrik yang disimpan untuk judul dashboard
+        metric_used = st.session_state.get('abc_metric', 'Kuantitas') 
+        st.header(f"📈 Dashboard Analisis ABC (Berdasarkan {metric_used})")
+        
         if 'abc_analysis_result' in st.session_state and st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
             result_display_dash = st.session_state.abc_analysis_result.copy()
             if not result_display_dash.empty:
@@ -359,14 +417,17 @@ elif page == "Hasil Analisa ABC":
                     abc_summary['sum_perc'] = 0
                 st.markdown("---")
                 col1, col2, col3, col4 = st.columns(4)
+                
+                # [DIUBAH] Menambahkan metric_used pada text metric
                 if 'A' in abc_summary.index:
-                    col1.metric("Produk Kelas A", f"{abc_summary.loc['A', 'count']} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% Penjualan")
+                    col1.metric("Produk Kelas A", f"{abc_summary.loc['A', 'count']} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% {metric_used}")
                 if 'B' in abc_summary.index:
-                    col2.metric("Produk Kelas B", f"{abc_summary.loc['B', 'count']} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% Penjualan")
+                    col2.metric("Produk Kelas B", f"{abc_summary.loc['B', 'count']} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% {metric_used}")
                 if 'C' in abc_summary.index:
-                    col3.metric("Produk Kelas C", f"{abc_summary.loc['C', 'count']} SKU", f"{abc_summary.loc['C', 'sum_perc']:.1f}% Penjualan")
+                    col3.metric("Produk Kelas C", f"{abc_summary.loc['C', 'count']} SKU", f"{abc_summary.loc['C', 'sum_perc']:.1f}% {metric_used}")
                 if 'D' in abc_summary.index:
                     col4.metric("Produk Kelas D", f"{abc_summary.loc['D', 'count']} SKU", "Tidak Terjual")
+                
                 st.markdown("---")
                 col_chart1, col_chart2 = st.columns(2)
                 with col_chart1:
@@ -376,16 +437,19 @@ elif page == "Hasil Analisa ABC":
                     ax1.axis('equal')
                     st.pyplot(fig1)
                 with col_chart2:
-                    st.subheader("Kontribusi Penjualan per Kelas ABC")
-                    st.bar_chart(abc_summary[['sum_perc']].rename(columns={'sum_perc': 'Kontribusi Penjualan (%)'}))
+                    # [DIUBAH] Menambahkan metric_used pada judul chart
+                    st.subheader(f"Kontribusi {metric_used} per Kelas ABC")
+                    st.bar_chart(abc_summary[['sum_perc']].rename(columns={'sum_perc': f'Kontribusi {metric_used} (%)'}))
                 st.markdown("---")
                 col_top1, col_top2 = st.columns(2)
                 with col_top1:
-                    st.subheader("Top 10 Produk Terlaris")
+                    # [DIUBAH] Menambahkan metric_used pada judul chart
+                    st.subheader(f"Top 10 Produk Terlaris (by {metric_used})")
                     top_products = result_display_dash.groupby('Nama Barang')['Metrik_Penjualan'].sum().nlargest(10)
                     st.bar_chart(top_products)
                 with col_top2:
-                    st.subheader("Performa Penjualan per Kota")
+                    # [DIUBAH] Menambahkan metric_used pada judul chart
+                    st.subheader(f"Performa {metric_used} per Kota")
                     city_sales = result_display_dash.groupby('City')['Metrik_Penjualan'].sum().sort_values(ascending=False)
                     st.bar_chart(city_sales)
             else:
