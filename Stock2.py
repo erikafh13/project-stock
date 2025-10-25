@@ -32,10 +32,8 @@ if 'df_penjualan' not in st.session_state:
     st.session_state.df_penjualan = pd.DataFrame()
 if 'produk_ref' not in st.session_state:
     st.session_state.produk_ref = pd.DataFrame()
-# Bagian state 'df_stock', 'stock_filename', 'stock_analysis_result' dihapus
 if 'abc_analysis_result' not in st.session_state:
     st.session_state.abc_analysis_result = None
-
 
 # --------------------------------Fungsi Umum & Google Drive--------------------------------
 
