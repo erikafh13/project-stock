@@ -82,7 +82,7 @@ if page == "Input Data":
     if st.button("Muat Semua File Penjualan"):
         if penjualan_files:
             df_penjualan = pd.concat(
-                [pd.read_excel(read_drive_excel(f['id']), engine='openpyxl') for f in penjualan_files],
+                [pd.read_excel(read_drive_excel(f['id'])) for f in penjualan_files],
                 ignore_index=True
             )
             # --- PREPROCESSING PENJUALAN ---
