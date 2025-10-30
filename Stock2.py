@@ -366,7 +366,7 @@ elif page == "Hasil Analisa ABC":
                     st.session_state.abc_analysis_result = result.copy()
                     st.success("Analisis ABC (metode kuartal) berhasil dijalankan!")
 
-        # --- [LOGIKA TAMPILAN BARU] ---
+        # --- [LOGIKA TAMPILAN BARU YANG DIUBAH] ---
         if st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
             result_display = st.session_state.abc_analysis_result.copy()
             result_display = result_display[result_display['City'] != 'Others']
@@ -385,43 +385,44 @@ elif page == "Hasil Analisa ABC":
             if selected_brand_abc:
                 result_display = result_display[result_display['BRAND Barang'].astype(str).isin(selected_brand_abc)]
                 
-            st.header("Hasil Analisis ABC per Kota dan Kategori")
+            # Mengubah judul header
+            st.header("Hasil Analisis ABC per Kota")
             
             # Format Angka
             revenue_format = '{:,.0f}'
             
+            # Loop HANYA berdasarkan KOTA
             for city in sorted(result_display['City'].unique()):
                 with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
+                    
+                    # 1. Ambil data kota
                     city_df = result_display[result_display['City'] == city]
                     
-                    # Loop lagi per Kategori Barang
-                    for kategori in sorted(city_df['Kategori Barang'].dropna().unique()):
-                        st.subheader(f"Kategori: {kategori}")
+                    # 2. Urutkan berdasarkan Total_Revenue
+                    city_df_sorted = city_df.sort_values(by='Total_Revenue', ascending=False)
                         
-                        kategori_df = city_df[
-                            (city_df['Kategori Barang'] == kategori)
-                        ].sort_values(by='Total_Revenue', ascending=False)
-                        
-                        # Tentukan kolom yang akan ditampilkan
-                        display_cols_order = [
-                            'No. Barang', 'Nama Barang', 'BRAND Barang', 
-                            'Revenue_Bulan_1', 'Revenue_Bulan_2', 'Revenue_Bulan_3',
-                            'Total_Revenue', 'Rata_Rata_Revenue', 'Kategori ABC',
-                            'Max_Revenue_in_Group' # Untuk referensi
-                        ]
-                        
-                        display_cols_order = [col for col in display_cols_order if col in kategori_df.columns]
-                        df_display = kategori_df[display_cols_order]
-                        
-                        st.dataframe(df_display.style.format({
-                            'Revenue_Bulan_1': revenue_format,
-                            'Revenue_Bulan_2': revenue_format,
-                            'Revenue_Bulan_3': revenue_format,
-                            'Total_Revenue': revenue_format,
-                            'Rata_Rata_Revenue': revenue_format,
-                            'Max_Revenue_in_Group': revenue_format
-                        }).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), 
-                        use_container_width=True)
+                    # 3. Tentukan kolom (PASTIKAN 'Kategori Barang' ADA DI SINI)
+                    display_cols_order = [
+                        'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', # <- Kategori Barang ditambahkan di sini
+                        'Revenue_Bulan_1', 'Revenue_Bulan_2', 'Revenue_Bulan_3',
+                        'Total_Revenue', 'Rata_Rata_Revenue', 'Kategori ABC',
+                        'Max_Revenue_in_Group' # Untuk referensi
+                    ]
+                    
+                    display_cols_order = [col for col in display_cols_order if col in city_df_sorted.columns]
+                    df_display = city_df_sorted[display_cols_order]
+                    
+                    # 4. Tampilkan DataFrame
+                    st.dataframe(df_display.style.format({
+                        'Revenue_Bulan_1': revenue_format,
+                        'Revenue_Bulan_2': revenue_format,
+                        'Revenue_Bulan_3': revenue_format,
+                        'Total_Revenue': revenue_format,
+                        'Rata_Rata_Revenue': revenue_format,
+                        'Max_Revenue_in_Group': revenue_format
+                    }).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), 
+                    use_container_width=True)
+            # --- AKHIR BLOK PERUBAHAN ---
 
             # --- [LOGIKA UNDUH BARU] ---
             # Menghapus logika pivot, menggantinya dengan unduhan file flat
@@ -505,4 +506,3 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
-
