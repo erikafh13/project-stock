@@ -297,33 +297,38 @@ elif page == "Hasil Analisa ABC":
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # --- [LOGIKA BARU] Penentuan Rentang Waktu 3 Bulan ---
-        st.header("Analisis Revenue 3 Bulan Terakhir")
-        st.info("Analisis ini secara otomatis mengambil data dari 3 bulan kalender penuh terakhir (tidak termasuk bulan berjalan).")
+        # --- [LOGIKA RENTANG WAKTU BARU DENGAN FILTER] ---
+        st.header("Filter Rentang Waktu Analisis")
+        st.info("Pilih tanggal akhir. Analisis akan mengambil data 3 blok 30-hari (total 90 hari) mundur dari tanggal yang Anda pilih.")
 
-        # Tentukan 3 bulan terakhir
         today = datetime.now().date()
-        # Bulan 3 (Terkini): Bulan lalu
-        end_date_bln3 = today.replace(day=1) - timedelta(days=1)
-        start_date_bln3 = end_date_bln3.replace(day=1)
-        # Bulan 2: Dua bulan lalu
-        end_date_bln2 = start_date_bln3 - timedelta(days=1)
-        start_date_bln2 = end_date_bln2.replace(day=1)
-        # Bulan 1 (Terlama): Tiga bulan lalu
-        end_date_bln1 = start_date_bln2 - timedelta(days=1)
-        start_date_bln1 = end_date_bln1.replace(day=1)
+        selected_end_date = st.date_input(
+            "Pilih Tanggal Akhir Analisis", 
+            value=today, 
+            help="Ini akan menjadi hari terakhir dari 'Bulan 3'. 'Bulan 2' dan 'Bulan 1' akan dihitung mundur dari sini."
+        )
 
-        st.markdown(f"**Bulan 3 (Terkini):** `{start_date_bln3.strftime('%Y-%m-%d')}` s/d `{end_date_bln3.strftime('%Y-%m-%d')}`")
-        st.markdown(f"**Bulan 2:** `{start_date_bln2.strftime('%Y-%m-%d')}` s/d `{end_date_bln2.strftime('%Y-%m-%d')}`")
-        st.markdown(f"**Bulan 1 (Terlama):** `{start_date_bln1.strftime('%Y-%m-%d')}` s/d `{end_date_bln1.strftime('%Y-%m-%d')}`")
+        # Tentukan 3 blok 30-hari
+        end_date_bln3 = selected_end_date
+        start_date_bln3 = end_date_bln3 - timedelta(days=29)
         
-        # --- [LOGIKA BARU] Tombol Analisis ---
-        # Filter tanggal dan metrik dihapus
+        end_date_bln2 = start_date_bln3 - timedelta(days=1)
+        start_date_bln2 = end_date_bln2 - timedelta(days=29)
+        
+        end_date_bln1 = start_date_bln2 - timedelta(days=1)
+        start_date_bln1 = end_date_bln1 - timedelta(days=29)
+
+        st.markdown(f"**Bulan 3 (Terkini):** `{start_date_bln3.strftime('%Y-%m-%d')}` s/d `{end_date_bln3.strftime('%Y-%m-%d')}` (30 hari)")
+        st.markdown(f"**Bulan 2:** `{start_date_bln2.strftime('%Y-%m-%d')}` s/d `{end_date_bln2.strftime('%Y-%m-%d')}` (30 hari)")
+        st.markdown(f"**Bulan 1 (Terlama):** `{start_date_bln1.strftime('%Y-%m-%d')}` s/d `{end_date_bln1.strftime('%Y-%m-%d')}` (30 hari)")
+        # --- [AKHIR BLOK PERUBAHAN] ---
+
             
         if st.button("Jalankan Analisa ABC (Metode Baru)"):
             with st.spinner("Melakukan perhitungan analisis ABC..."):
                 
                 # 1. Buat 3 DataFrame terfilter untuk setiap bulan
+                # Kode ini sekarang otomatis menggunakan tanggal 30-hari dari atas
                 mask1 = (so_df['Tgl Faktur'].dt.date >= start_date_bln1) & (so_df['Tgl Faktur'].dt.date <= end_date_bln1)
                 so_df_bln1 = so_df.loc[mask1]
                 
