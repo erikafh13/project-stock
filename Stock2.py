@@ -459,62 +459,116 @@ elif page == "Hasil Analisa ABC":
              st.info("Tidak ada data untuk ditampilkan. Harap periksa filter tanggal atau data input Anda.")
 
 
+    # =====================================================================================
+    # [BLOK DASHBOARD BARU]
+    # =====================================================================================
     with tab2_abc:
-        # --- [LOGIKA DASHBOARD TIDAK BERUBAH] ---
-        # Dashboard ini tetap menampilkan ringkasan berdasarkan 'Total_Revenue'
-        # (yang disimpan di kolom 'Kategori ABC')
         
-        metric_used = "Total_Revenue" 
-        st.header(f"📈 Dashboard Analisis ABC (Berdasarkan {metric_used} 3 Bulan)")
-        
+        # --- [FUNGSI HELPER BARU UNTUK DASHBOARD] ---
+        def create_dashboard_view(df, abc_col, metric_col, metric_name):
+            """
+            Membuat satu set lengkap komponen dashboard (metrik + 4 chart)
+            berdasarkan kolom ABC dan kolom Metrik yang dipilih.
+            """
+            
+            # 1. Agregasi
+            # Pastikan kolom ada sebelum groupby
+            if abc_col not in df.columns or metric_col not in df.columns:
+                st.error(f"Kolom yang diperlukan ('{abc_col}' atau '{metric_col}') tidak ditemukan.")
+                return
+
+            abc_summary = df.groupby(abc_col)[metric_col].agg(['count', 'sum'])
+            total_metric_sum = abc_summary['sum'].sum()
+            
+            if total_metric_sum > 0:
+                abc_summary['sum_perc'] = (abc_summary['sum'] / total_metric_sum) * 100
+            else:
+                abc_summary['sum_perc'] = 0
+                
+            abc_summary = abc_summary.reindex(['A', 'B', 'C', 'D', 'E']).fillna(0)
+                
+            st.markdown("---")
+            
+            # 2. Metrik 5 Kolom
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric(f"Produk Kelas A", f"{abc_summary.loc['A', 'count']:.0f} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% {metric_name}")
+            col2.metric(f"Produk Kelas B", f"{abc_summary.loc['B', 'count']:.0f} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% {metric_name}")
+            col3.metric(f"Produk Kelas C", f"{abc_summary.loc['C', 'count']:.0f} SKU", f"{abc_summary.loc['C', 'sum_perc']:.1f}% {metric_name}")
+            col4.metric(f"Produk Kelas D", f"{abc_summary.loc['D', 'count']:.0f} SKU", f"{abc_summary.loc['D', 'sum_perc']:.1f}% {metric_name}")
+            col5.metric(f"Produk Kelas E", f"{abc_summary.loc['E', 'count']:.0f} SKU", "Metrik 0")
+
+            st.markdown("---")
+            
+            # 3. Chart Komposisi & Kontribusi
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                st.subheader("Komposisi Produk per Kelas ABCDE")
+                fig1, ax1 = plt.subplots()
+                colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da', '#e2e3e5']
+                
+                # Filter data pie agar tidak error jika ada 0
+                pie_data = abc_summary[abc_summary['count'] > 0]
+                if not pie_data.empty:
+                    ax1.pie(pie_data['count'], labels=pie_data.index, autopct='%1.1f%%', startangle=90, colors=[colors[abc_summary.index.get_loc(i)] for i in pie_data.index])
+                    ax1.axis('equal')
+                else:
+                    ax1.text(0.5, 0.5, "Tidak ada data", horizontalalignment='center', verticalalignment='center')
+                st.pyplot(fig1)
+                
+            with col_chart2:
+                st.subheader(f"Kontribusi {metric_name} per Kelas ABCDE")
+                st.bar_chart(abc_summary[['sum_perc']].rename(columns={'sum_perc': f'Kontribusi {metric_name} (%)'}))
+                
+            st.markdown("---")
+            
+            # 4. Chart Top 10 & Per Kota
+            col_top1, col_top2 = st.columns(2)
+            with col_top1:
+                st.subheader(f"Top 10 Produk Terlaris (by {metric_name})")
+                top_products = df.groupby('Nama Barang')[metric_col].sum().nlargest(10)
+                st.bar_chart(top_products)
+                
+            with col_top2:
+                st.subheader(f"Performa {metric_name} per Kota")
+                city_sales = df.groupby('City')[metric_col].sum().sort_values(ascending=False)
+                st.bar_chart(city_sales)
+        # --- [AKHIR FUNGSI HELPER] ---
+
+
+        # --- [LOGIKA UTAMA DASHBOARD BARU] ---
         if 'abc_analysis_result' in st.session_state and st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
             result_display_dash = st.session_state.abc_analysis_result.copy()
-            if not result_display_dash.empty:
-                
-                # Agregasi berdasarkan 'Kategori ABC' (yang = Total_Revenue)
-                abc_summary = result_display_dash.groupby('Kategori ABC')['Total_Revenue'].agg(['count', 'sum'])
-                total_sales_sum = abc_summary['sum'].sum()
-                
-                if total_sales_sum > 0:
-                    abc_summary['sum_perc'] = (abc_summary['sum'] / total_sales_sum) * 100
-                else:
-                    abc_summary['sum_perc'] = 0
-                    
-                abc_summary = abc_summary.reindex(['A', 'B', 'C', 'D', 'E']).fillna(0) 
-                    
-                st.markdown("---")
-                col1, col2, col3, col4, col5 = st.columns(5)
-                
-                col1.metric("Produk Kelas A", f"{abc_summary.loc['A', 'count']:.0f} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% {metric_used}")
-                col2.metric("Produk Kelas B", f"{abc_summary.loc['B', 'count']:.0f} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% {metric_used}")
-                col3.metric("Produk Kelas C", f"{abc_summary.loc['C', 'count']:.0f} SKU", f"{abc_summary.loc['C', 'sum_perc']:.1f}% {metric_used}")
-                col4.metric("Produk Kelas D", f"{abc_summary.loc['D', 'count']:.0f} SKU", f"{abc_summary.loc['D', 'sum_perc']:.1f}% {metric_used}")
-                col5.metric("Produk Kelas E", f"{abc_summary.loc['E', 'count']:.0f} SKU", "Revenue 0")
+            
+            # Buat Sub-Tabs
+            sub_tab_total, sub_tab_avg, sub_tab_wma = st.tabs([
+                "📈 Analisis by Total Revenue", 
+                "📊 Analisis by Rata-Rata", 
+                "📉 Analisis by WMA"
+            ])
 
-                st.markdown("---")
-                col_chart1, col_chart2 = st.columns(2)
-                with col_chart1:
-                    st.subheader("Komposisi Produk per Kelas ABCDE")
-                    fig1, ax1 = plt.subplots()
-                    colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da', '#e2e3e5']
-                    ax1.pie(abc_summary['count'], labels=abc_summary.index, autopct='%1.1f%%', startangle=90, colors=colors)
-                    ax1.axis('equal')
-                    st.pyplot(fig1)
-                with col_chart2:
-                    st.subheader(f"Kontribusi {metric_used} per Kelas ABCDE")
-                    st.bar_chart(abc_summary[['sum_perc']].rename(columns={'sum_perc': f'Kontribusi {metric_used} (%)'}))
+            with sub_tab_total:
+                create_dashboard_view(
+                    df=result_display_dash, 
+                    abc_col='Kategori ABC', 
+                    metric_col='Total_Revenue', 
+                    metric_name='Total Revenue'
+                )
                 
-                st.markdown("---")
-                col_top1, col_top2 = st.columns(2)
-                with col_top1:
-                    st.subheader(f"Top 10 Produk Terlaris (by {metric_used})")
-                    top_products = result_display_dash.groupby('Nama Barang')['Total_Revenue'].sum().nlargest(10)
-                    st.bar_chart(top_products)
-                with col_top2:
-                    st.subheader(f"Performa {metric_used} per Kota")
-                    city_sales = result_display_dash.groupby('City')['Total_Revenue'].sum().sort_values(ascending=False)
-                    st.bar_chart(city_sales)
-            else:
-                st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+            with sub_tab_avg:
+                create_dashboard_view(
+                    df=result_display_dash, 
+                    abc_col='ABC_Rata_Rata', 
+                    metric_col='Rata_Rata_Revenue', 
+                    metric_name='Rata-Rata Revenue'
+                )
+
+            with sub_tab_wma:
+                create_dashboard_view(
+                    df=result_display_dash, 
+                    abc_col='ABC_WMA', 
+                    metric_col='Revenue_WMA', 
+                    metric_name='WMA Revenue'
+                )
+
         else:
-            st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+            st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis di tab 'Hasil Tabel' terlebih dahulu.")
