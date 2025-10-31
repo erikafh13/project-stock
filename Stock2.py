@@ -240,13 +240,28 @@ if page == "Input Data":
     if st.button("Muat / Muat Ulang Data Portal"):
         if portal_files_list: 
             with st.spinner(f"Menggabungkan {len(portal_files_list)} file portal..."):
-                list_of_dfs_portal = [download_and_read(f['id'], f['name']) for f in portal_files_list]
-                df_portal = pd.concat(list_of_dfs_portal, ignore_index=True) 
-                
-                st.session_state.df_portal = df_portal
-                st.success(f"Data portal ({len(portal_files_list)} file) berhasil dimuat ulang.")
+                # [DIUBAH] Pastikan membaca semua file
+                list_of_dfs_portal = []
+                for f in portal_files_list:
+                    try:
+                        # [DIUBAH] Coba baca dengan engine openpyxl jika file excel
+                        if f['name'].endswith('.xlsx'):
+                            df_temp = download_and_read(f['id'], f['name'], engine='openpyxl')
+                        else:
+                            df_temp = download_and_read(f['id'], f['name'])
+                        list_of_dfs_portal.append(df_temp)
+                    except Exception as e:
+                        st.error(f"Gagal membaca file {f['name']}: {e}")
+                        
+                if list_of_dfs_portal:
+                    df_portal = pd.concat(list_of_dfs_portal, ignore_index=True) 
+                    st.session_state.df_portal = df_portal
+                    st.success(f"Data portal ({len(portal_files_list)} file) berhasil dimuat ulang.")
+                else:
+                    st.error("File portal ditemukan, namun semua gagal dibaca.")
         else:
             st.warning("⚠️ Tidak ada file ditemukan di folder Data Portal.")
+
 
     if not st.session_state.df_portal.empty:
         st.success(f"✅ Data portal telah dimuat. ({len(st.session_state.df_portal)} baris)")
@@ -277,6 +292,8 @@ elif page == "Hasil Analisa ABC":
         
         # 1. Cari Max_Metric untuk setiap grup (City, Kategori Barang)
         max_metric_col = f'Max_{metric_col_name}_in_Group'
+        # [DIUBAH] Groupby ini tetap benar. Ini membandingkan produk
+        # dengan produk tercepat di KATEGORI & KOTA yang sama.
         df[max_metric_col] = df.groupby(['City', 'Kategori Barang'])[metric_col_name].transform('max')
         
         # 2. Definisikan fungsi klasifikasi untuk diterapkan per baris
@@ -323,19 +340,23 @@ elif page == "Hasil Analisa ABC":
         return warna.get(val, '')
 
     with tab1_abc:
-        # --- Pengecekan Data Awal (Sama) ---
-        # Perhatikan: Pengecekan ini belum menyertakan df_portal karena
-        # logika analisis di bawahnya belum menggunakannya.
-        if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
-            st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
+        # --- [DIUBAH] Pengecekan Data Awal ---
+        if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty or st.session_state.df_portal.empty:
+            st.warning("⚠️ Harap muat file **Penjualan**, **Produk Referensi**, dan **Data Portal** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
             
         all_so_df = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
+        portal_df = st.session_state.df_portal.copy() # [BARU] Muat data portal
         
-        for df in [all_so_df, produk_ref]:
+        # [BARU] Preprocessing untuk 3 file
+        for df in [all_so_df, produk_ref, portal_df]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
+        
+        if 'No. Barang' not in portal_df.columns:
+             st.error("❌ ANALISIS GAGAL: **Data Portal** tidak memiliki kolom 'No. Barang'.")
+             st.stop()
                 
         so_df = all_so_df.copy()
         so_df.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
@@ -414,27 +435,31 @@ elif page == "Hasil Analisa ABC":
                 mask3 = (so_df['Tgl Faktur'].dt.date >= start_date_bln3) & (so_df['Tgl Faktur'].dt.date <= end_date_bln3)
                 so_df_bln3 = so_df.loc[mask3]
 
-                # 2. Agregasi revenue per bulan
-                agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang'])['Revenue'].sum().reset_index(name='Revenue_Bulan_1')
-                agg_bln2 = so_df_bln2.groupby(['City', 'No. Barang'])['Revenue'].sum().reset_index(name='Revenue_Bulan_2')
-                agg_bln3 = so_df_bln3.groupby(['City', 'No. Barang'])['Revenue'].sum().reset_index(name='Revenue_Bulan_3')
+                # 2. [DIUBAH] Agregasi revenue per bulan (termasuk Platform)
+                group_cols = ['City', 'No. Barang', 'Platform']
+                agg_bln1 = so_df_bln1.groupby(group_cols)['Revenue'].sum().reset_index(name='Revenue_Bulan_1')
+                agg_bln2 = so_df_bln2.groupby(group_cols)['Revenue'].sum().reset_index(name='Revenue_Bulan_2')
+                agg_bln3 = so_df_bln3.groupby(group_cols)['Revenue'].sum().reset_index(name='Revenue_Bulan_3')
 
-                # 3. Siapkan daftar produk master (kombinasi)
+                # 3. [DIUBAH] Siapkan daftar produk master (kombinasi)
                 produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang', 'Nama Kategori Barang': 'Kategori Barang'}, inplace=True, errors='ignore')
                 barang_list = produk_ref[['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']].drop_duplicates()
                 city_list = so_df['City'].dropna().unique() # Ambil semua kota dari data asli
+                platform_list = so_df['Platform'].dropna().unique() # [BARU] Ambil semua platform
                 
                 if len(city_list) == 0:
                         st.warning("Data penjualan ada, namun tidak memiliki informasi 'City' yang valid.")
                         st.session_state.abc_analysis_result = pd.DataFrame()
                 else:
-                        kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
+                        # [DIUBAH] Buat kombinasi 3-dimensi
+                        kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang'], platform_list], names=['City', 'No. Barang', 'Platform']).to_frame(index=False)
                         kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
                         
-                        # 4. Gabungkan (merge) data bulanan ke daftar master
-                        grouped = pd.merge(kombinasi, agg_bln1, on=['City', 'No. Barang'], how='left')
-                        grouped = pd.merge(grouped, agg_bln2, on=['City', 'No. Barang'], how='left')
-                        grouped = pd.merge(grouped, agg_bln3, on=['City', 'No. Barang'], how='left')
+                        # 4. [DIUBAH] Gabungkan (merge) data bulanan ke daftar master
+                        merge_cols = ['City', 'No. Barang', 'Platform']
+                        grouped = pd.merge(kombinasi, agg_bln1, on=merge_cols, how='left')
+                        grouped = pd.merge(grouped, agg_bln2, on=merge_cols, how='left')
+                        grouped = pd.merge(grouped, agg_bln3, on=merge_cols, how='left')
                         
                         # 5. Isi NaN (tidak terjual di bulan tsb) dengan 0
                         grouped.fillna({
@@ -460,8 +485,70 @@ elif page == "Hasil Analisa ABC":
                         result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Revenue', 'ABC_Rata_Rata')
                         result_df = classify_abc_by_metric(result_df, 'Revenue_WMA', 'ABC_WMA')
                         
+                        # --- [BLOK LOGIKA BARU: MERGE & MAP MARGIN] ---
+                        
+                        # 8. [BARU] Merge dengan data margin dari portal
+                        # Kolom-kolom margin yang relevan
+                        margin_cols = [
+                            'No. Barang', 
+                            'Margin Harga Offline (Nilai)', 'Margin Persen Offline (%)',
+                            'Margin Harga Website (Nilai)', 'Margin Persen Website (%)',
+                            'Margin Harga Toped OS (Nilai)', 'Margin Persen Toped OS (%)',
+                            'Margin Harga Shopee (Nilai)', 'Margin Persen Shopee (%)'
+                        ]
+                        
+                        # Pastikan semua kolom ada sebelum memfilter
+                        existing_margin_cols = [col for col in margin_cols if col in portal_df.columns]
+                        
+                        # Ambil data margin, hapus duplikat No. Barang
+                        portal_margins = portal_df[existing_margin_cols].drop_duplicates(subset=['No. Barang'])
+                        
+                        # Gabungkan ke hasil akhir
+                        result_df = pd.merge(result_df, portal_margins, on='No. Barang', how='left')
+
+                        # 9. [BARU] Buat kolom margin final berdasarkan Platform
+                        
+                        # --- Kondisi untuk Margin Harga (Nilai) ---
+                        conditions_harga = [
+                            (result_df['Platform'] == 'Shopee'),
+                            (result_df['Platform'] == 'Tokopedia'),
+                            (result_df['Platform'] == 'Website'),
+                            (result_df['Platform'] == 'Offline')
+                        ]
+                        # --- Pilihan kolom yang sesuai ---
+                        choices_harga = [
+                            result_df.get('Margin Harga Shopee (Nilai)', np.nan),
+                            result_df.get('Margin Harga Toped OS (Nilai)', np.nan),
+                            result_df.get('Margin Harga Website (Nilai)', np.nan),
+                            result_df.get('Margin Harga Offline (Nilai)', np.nan)
+                        ]
+                        
+                        # --- Kondisi untuk Margin Persen (%) ---
+                        conditions_persen = [
+                            (result_df['Platform'] == 'Shopee'),
+                            (result_df['Platform'] == 'Tokopedia'),
+                            (result_df['Platform'] == 'Website'),
+                            (result_df['Platform'] == 'Offline')
+                        ]
+                        # --- Pilihan kolom yang sesuai ---
+                        choices_persen = [
+                            result_df.get('Margin Persen Shopee (%)', np.nan),
+                            result_df.get('Margin Persen Toped OS (%)', np.nan),
+                            result_df.get('Margin Persen Website (%)', np.nan),
+                            result_df.get('Margin Persen Offline (%)', np.nan)
+                        ]
+
+                        # Buat kolom baru menggunakan np.select
+                        result_df['Margin Harga (Nilai)'] = np.select(conditions_harga, choices_harga, default=np.nan)
+                        result_df['Margin Persen (%)'] = np.select(conditions_persen, choices_persen, default=np.nan)
+                        
+                        # Isi NaN dengan 0 agar tampilan bersih
+                        result_df.fillna({'Margin Harga (Nilai)': 0, 'Margin Persen (%)': 0}, inplace=True)
+
+                        # --- [AKHIR BLOK LOGIKA BARU] ---
+                        
                         st.session_state.abc_analysis_result = result_df.copy()
-                        st.success("Analisis ABC (3 metode) berhasil dijalankan!")
+                        st.success("Analisis ABC (3 metode) dan perhitungan margin berhasil dijalankan!")
 
         # --- [LOGIKA TAMPILAN BARU YANG DIUBAH] ---
         if st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
@@ -499,9 +586,11 @@ elif page == "Hasil Analisa ABC":
                     # [DIUBAH] Tentukan kolom baru
                     display_cols_order = [
                         'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang',  
+                        'Platform', # [BARU] Tampilkan platform
                         'Revenue_Bulan_1', 'Revenue_Bulan_2', 'Revenue_Bulan_3',
                         'Total_Revenue', 'Rata_Rata_Revenue', 'Revenue_WMA', # Metrik
-                        'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA' # Hasil Analisis
+                        'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA', # Hasil Analisis
+                        'Margin Harga (Nilai)', 'Margin Persen (%)' # [BARU] Kolom Margin
                     ]
                     
                     display_cols_order = [col for col in display_cols_order if col in city_df_sorted.columns]
@@ -514,7 +603,9 @@ elif page == "Hasil Analisa ABC":
                         'Revenue_Bulan_3': revenue_format,
                         'Total_Revenue': revenue_format,
                         'Rata_Rata_Revenue': revenue_format,
-                        'Revenue_WMA': revenue_format, # Format baru
+                        'Revenue_WMA': revenue_format,
+                        'Margin Harga (Nilai)': revenue_format, # [BARU] Format Margin
+                        'Margin Persen (%)': '{:.1%}' # [BARU] Format Margin Persen
                     }).apply(lambda x: x.map(highlight_kategori_abc),  
                             subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA']), # Subset baru
                     use_container_width=True)
@@ -606,11 +697,13 @@ elif page == "Hasil Analisa ABC":
             col_top1, col_top2 = st.columns(2)
             with col_top1:
                 st.subheader(f"Top 10 Produk Terlaris (by {metric_name})")
+                # [DIUBAH] Agregasi Top 10 tetap benar, menjumlahkan semua platform
                 top_products = df.groupby('Nama Barang')[metric_col].sum().nlargest(10)
                 st.bar_chart(top_products)
                 
             with col_top2:
                 st.subheader(f"Performa {metric_name} per Kota")
+                # [DIUBAH] Agregasi Per Kota tetap benar, menjumlahkan semua platform
                 city_sales = df.groupby('City')[metric_col].sum().sort_values(ascending=False)
                 st.bar_chart(city_sales)
         # --- [AKHIR FUNGSI HELPER] ---
