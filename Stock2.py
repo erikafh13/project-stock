@@ -33,6 +33,9 @@ if 'df_penjualan' not in st.session_state:
     st.session_state.df_penjualan = pd.DataFrame()
 if 'produk_ref' not in st.session_state:
     st.session_state.produk_ref = pd.DataFrame()
+# [BARU] Menambahkan state untuk data portal
+if 'df_portal' not in st.session_state:
+    st.session_state.df_portal = pd.DataFrame() 
 # Bagian state 'df_stock', 'stock_filename', 'stock_analysis_result' dihapus
 if 'abc_analysis_result' not in st.session_state:
     st.session_state.abc_analysis_result = None
@@ -66,7 +69,7 @@ try:
     if credentials:
         drive_service = build('drive', 'v3', credentials=credentials)
         folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
-        folder_portal = "1GOKVWugUMqN9aOWYCeFlKj-qTr2dA7_u" # [BARU] ID Folder Data Portal
+        folder_portal = "1GOKVWugUMqN9aOWYCeFlKj-qTr2dA7_u" # ID Folder Data Portal
         folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
         # folder_stock dan folder_hasil_analisis dihapus
         DRIVE_AVAILABLE = True
@@ -147,45 +150,37 @@ if page == "Input Data":
         st.warning("Tidak dapat melanjutkan karena koneksi ke Google Drive gagal. Periksa log di sidebar.")
         st.stop()
 
+    # --- [BLOK 1: PENJUALAN] ---
     st.header("1. Data Penjualan")
-    # --- [BLOK DIUBAH] ---
-    with st.spinner("Mencari file penjualan (dari folder Penjualan & Portal)..."):
-        # Ambil dari dua folder
+    with st.spinner("Mencari file penjualan..."):
         penjualan_files_list = list_files_in_folder(drive_service, folder_penjualan)
-        portal_files_list = list_files_in_folder(drive_service, folder_portal)
-        
         st.info(f"Ditemukan {len(penjualan_files_list)} file di folder Penjualan.")
-        st.info(f"Ditemukan {len(portal_files_list)} file di folder Data Portal.")
-        
-        # Gabungkan kedua list file
-        all_sales_files = penjualan_files_list + portal_files_list 
         
     if st.button("Muat / Muat Ulang Data Penjualan"):
-        # Cek list gabungan
-        if all_sales_files: 
-            with st.spinner(f"Menggabungkan {len(all_sales_files)} file (Penjualan & Portal)..."):
-                # Gunakan list gabungan
-                list_of_dfs = [download_and_read(f['id'], f['name']) for f in all_sales_files]
+        if penjualan_files_list: 
+            with st.spinner(f"Menggabungkan {len(penjualan_files_list)} file penjualan..."):
+                list_of_dfs = [download_and_read(f['id'], f['name']) for f in penjualan_files_list]
                 df_penjualan = pd.concat(list_of_dfs, ignore_index=True) 
                 
                 st.session_state.df_penjualan = df_penjualan
-                st.success(f"Data penjualan (gabungan {len(all_sales_files)} file) berhasil dimuat ulang.")
-        else: # Penyesuaian pesan
-            st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive (Penjualan & Portal).")
-    # --- [AKHIR BLOK DIUBAH] ---
+                st.success(f"Data penjualan ({len(penjualan_files_list)} file) berhasil dimuat ulang.")
+        else:
+            st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive (Penjualan).")
 
     if not st.session_state.df_penjualan.empty:
-        st.success(f"✅ Data penjualan gabungan telah dimuat. ({len(st.session_state.df_penjualan)} baris)")
+        st.success(f"✅ Data penjualan telah dimuat. ({len(st.session_state.df_penjualan)} baris)")
         st.dataframe(st.session_state.df_penjualan.head())
         
-        excel_data = convert_df_to_excel(st.session_state.df_penjualan)
+        excel_data_penjualan = convert_df_to_excel(st.session_state.df_penjualan)
         st.download_button(
             label="📥 Unduh Data Penjualan Gabungan (Excel)",
-            data=excel_data,
+            data=excel_data_penjualan,
             file_name="data_penjualan_gabungan.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+    st.markdown("---")
 
+    # --- [BLOK 2: PRODUK REFERENSI] ---
     st.header("2. Produk Referensi")
     with st.spinner("Mencari file produk di Google Drive..."):
         produk_files_list = list_files_in_folder(drive_service, folder_produk)
@@ -199,12 +194,38 @@ if page == "Input Data":
             st.session_state.produk_ref = read_produk_file(selected_produk_file['id'])
             st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
     
-    # Baris 182 yang error sebelumnya
-    # [DIUBAH] Menambahkan pengecekan 'produk_ref' in st.session_state untuk keamanan
     if 'produk_ref' in st.session_state and not st.session_state.produk_ref.empty:
         st.dataframe(st.session_state.produk_ref.head())
+    st.markdown("---")
 
-    # Bagian "3. Data Stock" telah dihapus seluruhnya
+    # --- [BLOK 3: DATA PORTAL (BARU)] ---
+    st.header("3. Data Portal")
+    with st.spinner("Mencari file data portal..."):
+        portal_files_list = list_files_in_folder(drive_service, folder_portal)
+        st.info(f"Ditemukan {len(portal_files_list)} file di folder Data Portal.")
+        
+    if st.button("Muat / Muat Ulang Data Portal"):
+        if portal_files_list: 
+            with st.spinner(f"Menggabungkan {len(portal_files_list)} file portal..."):
+                list_of_dfs_portal = [download_and_read(f['id'], f['name']) for f in portal_files_list]
+                df_portal = pd.concat(list_of_dfs_portal, ignore_index=True) 
+                
+                st.session_state.df_portal = df_portal
+                st.success(f"Data portal ({len(portal_files_list)} file) berhasil dimuat ulang.")
+        else:
+            st.warning("⚠️ Tidak ada file ditemukan di folder Data Portal.")
+
+    if not st.session_state.df_portal.empty:
+        st.success(f"✅ Data portal telah dimuat. ({len(st.session_state.df_portal)} baris)")
+        st.dataframe(st.session_state.df_portal.head())
+        
+        excel_data_portal = convert_df_to_excel(st.session_state.df_portal)
+        st.download_button(
+            label="📥 Unduh Data Portal Gabungan (Excel)",
+            data=excel_data_portal,
+            file_name="data_portal_gabungan.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 
 # SELURUH BLOK 'elif page == "Hasil Analisa Stock":' TELAH DIHAPUS
@@ -270,6 +291,8 @@ elif page == "Hasil Analisa ABC":
 
     with tab1_abc:
         # --- Pengecekan Data Awal (Sama) ---
+        # Perhatikan: Pengecekan ini belum menyertakan df_portal karena
+        # logika analisis di bawahnya belum menggunakannya.
         if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
             st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
