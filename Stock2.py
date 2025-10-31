@@ -128,6 +128,39 @@ def map_city(nama_dept):
     elif nama_dept == 'H - BALI': return 'Bali'
     else: return 'Others'
 
+# --- [BARU] FUNGSI MAPPING PLATFORM ---
+# Mendefinisikan SET untuk pencarian yang efisien
+SHOPEE_SET = {
+    'AIRPAY INTERNATIONAL INDONESIA', 'AIRPAY.ID', 'AIRPAY - WD',
+    'D - SHOPEE', 'F - SHOPEE', 'E - SHOPEE', 'H - SHOPEE'
+}
+TOKOPEDIA_SET = {
+    'TOKOPEDIA', 'TOKOPEDIA.ID'
+}
+WEBSITE_SET = {
+    'A - CASH', 'D - CASH', 'H - CASH',
+    'E - CASH', 'F - CASH', 'B - CASH'
+}
+
+def map_platform(row):
+    """Mengekstrak Platform dari Nama Pelanggan."""
+    # Ambil, bersihkan, dan ubah ke huruf besar
+    pelanggan = str(row.get('Nama Pelanggan', '')).strip().upper()
+    
+    # Cek menggunakan SET yang sudah didefinisikan
+    if pelanggan in SHOPEE_SET:
+        return 'Shopee'
+    
+    if pelanggan in TOKOPEDIA_SET:
+        return 'Tokopedia'
+    
+    if pelanggan in WEBSITE_SET:
+        return 'Website'
+        
+    # Default jika tidak ada yang cocok
+    return 'Offline'
+
+
 # --- FUNGSI KONVERSI EXCEL (DIDEFINISIKAN SECARA GLOBAL) ---
 @st.cache_data
 def convert_df_to_excel(df):
@@ -198,7 +231,7 @@ if page == "Input Data":
         st.dataframe(st.session_state.produk_ref.head())
     st.markdown("---")
 
-    # --- [BLOK 3: DATA PORTAL (BARU)] ---
+    # --- [BLOK 3: DATA PORTAL] ---
     st.header("3. Data Portal")
     with st.spinner("Mencari file data portal..."):
         portal_files_list = list_files_in_folder(drive_service, folder_portal)
@@ -323,6 +356,10 @@ elif page == "Hasil Analisa ABC":
         # --- Preprocessing Data (Sama) ---
         so_df['Nama Dept'] = so_df.apply(map_nama_dept, axis=1)
         so_df['City'] = so_df['Nama Dept'].apply(map_city)
+        
+        # [BARU] Tambahkan baris ini untuk membuat kolom Platform
+        so_df['Platform'] = so_df.apply(map_platform, axis=1)
+        
         so_df['Tgl Faktur'] = pd.to_datetime(so_df['Tgl Faktur'], dayfirst=True, errors='coerce')
         so_df.dropna(subset=['Tgl Faktur'], inplace=True)
         
