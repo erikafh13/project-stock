@@ -414,7 +414,7 @@ elif page == "Hasil Analisa ABC":
                 so_df_bln3 = so_df.loc[mask3]
 
                 # 2. [DIUBAH] Agregasi revenue per bulan (termasuk Platform)
-                agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='')
+                agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_1')
                 agg_bln2 = so_df_bln2.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_2')
                 agg_bln3 = so_df_bln3.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_3')
 
@@ -439,7 +439,10 @@ elif page == "Hasil Analisa ABC":
                         grouped = pd.merge(grouped, agg_bln2, on=['City', 'No. Barang', 'Platform'], how='left')
                         grouped = pd.merge(grouped, agg_bln3, on=['City', 'No. Barang', 'Platform'], how='left')
                         
+                        
+                        # --- [PERBAIKAN ERROR KEYERROR] ---
                         # 5. Isi NaN (tidak terjual di bulan tsb) dengan 0
+                        # BLOK INI HARUS ADA SEBELUM PERHITUNGAN
                         grouped.fillna({
                             'Revenue_Bulan_1': 0,  
                             'Revenue_Bulan_2': 0,  
@@ -447,6 +450,7 @@ elif page == "Hasil Analisa ABC":
                         }, inplace=True)
                         
                         # 6. Hitung Total, Rata-rata, dan WMA
+                        # Baris ini sekarang aman dari error
                         grouped['Total_Revenue'] = grouped['Revenue_Bulan_1'] + grouped['Revenue_Bulan_2'] + grouped['Revenue_Bulan_3']
                         grouped['Rata_Rata_Revenue'] = grouped['Total_Revenue'] / 3
                         grouped['Revenue_WMA'] = (
@@ -454,6 +458,8 @@ elif page == "Hasil Analisa ABC":
                             (grouped['Revenue_Bulan_2'] * 2) +  
                             (grouped['Revenue_Bulan_3'] * 3)
                         ) / 6
+                        # --- [AKHIR PERBAIKAN] ---
+                        
                         
                         # 7. Jalankan fungsi klasifikasi ABCDE 3 KALI
                         result_df = classify_abc_by_metric(grouped, 'Total_Revenue', 'Kategori ABC')
@@ -561,8 +567,8 @@ elif page == "Hasil Analisa ABC":
                     display_cols_order = [col for col in display_cols_order if col in city_df_sorted.columns]
                     df_display = city_df_sorted[display_cols_order]
                     
-                    # [DIUBAH] Tampilkan DataFrame dengan format & highlight baru
-                    # [DIUBAH] Tampilkan DataFrame dengan format & highlight baru
+                    # --- [PERBAIKAN ERROR StreamlitAPIException] ---
+                    # Mengganti .apply(lambda...) dengan .map()
                     st.dataframe(df_display.style.format({
                         'Revenue_Bulan_1': revenue_format,
                         'Revenue_Bulan_2': revenue_format,
@@ -573,8 +579,9 @@ elif page == "Hasil Analisa ABC":
                         'Margin Harga': revenue_format, # [BARU]
                         'Margin Persen': percent_format # [BARU]
                     }).map(highlight_kategori_abc,  
-                            subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA']), # <-- INI PERUBAHANNYA
+                            subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA']), # <-- PERBAIKAN DI SINI
                     use_container_width=True)
+                    # --- [AKHIR PERBAIKAN] ---
             # --- AKHIR BLOK PERUBAHAN ---
 
             # --- [LOGIKA UNDUH BARU] ---
