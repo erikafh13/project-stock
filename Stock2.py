@@ -66,6 +66,7 @@ try:
     if credentials:
         drive_service = build('drive', 'v3', credentials=credentials)
         folder_penjualan = "1Okgw8qHVM8HyBwnTUFHbmYkNKqCcswNZ"
+        folder_portal = "1GOKVWugUMqN9aOWYCeFlKj-qTr2dA7_u" # [BARU] ID Folder Data Portal
         folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
         # folder_stock dan folder_hasil_analisis dihapus
         DRIVE_AVAILABLE = True
@@ -135,7 +136,7 @@ def convert_df_to_excel(df):
 
 
 # =====================================================================================
-#                               ROUTING HALAMAN
+#                            ROUTING HALAMAN
 # =====================================================================================
 
 if page == "Input Data":
@@ -147,20 +148,35 @@ if page == "Input Data":
         st.stop()
 
     st.header("1. Data Penjualan")
-    with st.spinner("Mencari file penjualan di Google Drive..."):
+    # --- [BLOK DIUBAH] ---
+    with st.spinner("Mencari file penjualan (dari folder Penjualan & Portal)..."):
+        # Ambil dari dua folder
         penjualan_files_list = list_files_in_folder(drive_service, folder_penjualan)
+        portal_files_list = list_files_in_folder(drive_service, folder_portal)
+        
+        st.info(f"Ditemukan {len(penjualan_files_list)} file di folder Penjualan.")
+        st.info(f"Ditemukan {len(portal_files_list)} file di folder Data Portal.")
+        
+        # Gabungkan kedua list file
+        all_sales_files = penjualan_files_list + portal_files_list 
+        
     if st.button("Muat / Muat Ulang Data Penjualan"):
-        if penjualan_files_list:
-            with st.spinner("Menggabungkan semua file penjualan..."):
-                df_penjualan = pd.concat([download_and_read(f['id'], f['name']) for f in penjualan_files_list], ignore_index=True)
+        # Cek list gabungan
+        if all_sales_files: 
+            with st.spinner(f"Menggabungkan {len(all_sales_files)} file (Penjualan & Portal)..."):
+                # Gunakan list gabungan
+                list_of_dfs = [download_and_read(f['id'], f['name']) for f in all_sales_files]
+                df_penjualan = pd.concat(list_of_dfs, ignore_index=True) 
+                
                 st.session_state.df_penjualan = df_penjualan
-                st.success("Data penjualan berhasil dimuat ulang.")
-        else:
-            st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive.")
+                st.success(f"Data penjualan (gabungan {len(all_sales_files)} file) berhasil dimuat ulang.")
+        else: # Penyesuaian pesan
+            st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive (Penjualan & Portal).")
+    # --- [AKHIR BLOK DIUBAH] ---
 
     if not st.session_state.df_penjualan.empty:
-        st.success(f"✅ Data penjualan telah dimuat.")
-        st.dataframe(st.session_state.df_penjualan)
+        st.success(f"✅ Data penjualan gabungan telah dimuat. ({len(st.session_state.df_penjualan)} baris)")
+        st.dataframe(st.session_state.df_penjualan.head())
         
         excel_data = convert_df_to_excel(st.session_state.df_penjualan)
         st.download_button(
@@ -219,7 +235,7 @@ elif page == "Hasil Analisa ABC":
             
             # Hindari pembagian dengan nol
             if max_metric == 0:
-                return 'E' 
+                return 'E'  
                 
             ratio = metric_value / max_metric
             
@@ -244,9 +260,9 @@ elif page == "Hasil Analisa ABC":
     # Menambahkan Kategori 'E' (Tidak berubah)
     def highlight_kategori_abc(val):
         warna = {
-            'A': 'background-color: #cce5ff', 
-            'B': 'background-color: #d4edda', 
-            'C': 'background-color: #fff3cd', 
+            'A': 'background-color: #cce5ff',  
+            'B': 'background-color: #d4edda',  
+            'C': 'background-color: #fff3cd',  
             'D': 'background-color: #f8d7da',
             'E': 'background-color: #e2e3e5'  # Warna baru untuk Kategori E
         }
@@ -303,8 +319,8 @@ elif page == "Hasil Analisa ABC":
 
         today = datetime.now().date()
         selected_end_date = st.date_input(
-            "Pilih Tanggal Akhir Analisis", 
-            value=today, 
+            "Pilih Tanggal Akhir Analisis",  
+            value=today,  
             help="Ini akan menjadi hari terakhir dari 'Bulan 3'. 'Bulan 2' dan 'Bulan 1' akan dihitung mundur dari sini."
         )
 
@@ -349,43 +365,43 @@ elif page == "Hasil Analisa ABC":
                 city_list = so_df['City'].dropna().unique() # Ambil semua kota dari data asli
                 
                 if len(city_list) == 0:
-                     st.warning("Data penjualan ada, namun tidak memiliki informasi 'City' yang valid.")
-                     st.session_state.abc_analysis_result = pd.DataFrame()
+                        st.warning("Data penjualan ada, namun tidak memiliki informasi 'City' yang valid.")
+                        st.session_state.abc_analysis_result = pd.DataFrame()
                 else:
-                    kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
-                    kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
-                    
-                    # 4. Gabungkan (merge) data bulanan ke daftar master
-                    grouped = pd.merge(kombinasi, agg_bln1, on=['City', 'No. Barang'], how='left')
-                    grouped = pd.merge(grouped, agg_bln2, on=['City', 'No. Barang'], how='left')
-                    grouped = pd.merge(grouped, agg_bln3, on=['City', 'No. Barang'], how='left')
-                    
-                    # 5. Isi NaN (tidak terjual di bulan tsb) dengan 0
-                    grouped.fillna({
-                        'Revenue_Bulan_1': 0, 
-                        'Revenue_Bulan_2': 0, 
-                        'Revenue_Bulan_3': 0
-                    }, inplace=True)
-                    
-                    # 6. Hitung Total, Rata-rata, dan WMA
-                    grouped['Total_Revenue'] = grouped['Revenue_Bulan_1'] + grouped['Revenue_Bulan_2'] + grouped['Revenue_Bulan_3']
-                    grouped['Rata_Rata_Revenue'] = grouped['Total_Revenue'] / 3
-                    
-                    # [BARU] Hitung WMA (Bobot 1-2-3, total bobot 6)
-                    grouped['Revenue_WMA'] = (
-                        (grouped['Revenue_Bulan_1'] * 1) + 
-                        (grouped['Revenue_Bulan_2'] * 2) + 
-                        (grouped['Revenue_Bulan_3'] * 3)
-                    ) / 6
-                    
-                    # 7. [DIUBAH] Jalankan fungsi klasifikasi ABCDE 3 KALI
-                    #    Panggil 'Kategori ABC' untuk Total_Revenue agar dashboard tab2 tetap berfungsi
-                    result_df = classify_abc_by_metric(grouped, 'Total_Revenue', 'Kategori ABC')
-                    result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Revenue', 'ABC_Rata_Rata')
-                    result_df = classify_abc_by_metric(result_df, 'Revenue_WMA', 'ABC_WMA')
-                    
-                    st.session_state.abc_analysis_result = result_df.copy()
-                    st.success("Analisis ABC (3 metode) berhasil dijalankan!")
+                        kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
+                        kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
+                        
+                        # 4. Gabungkan (merge) data bulanan ke daftar master
+                        grouped = pd.merge(kombinasi, agg_bln1, on=['City', 'No. Barang'], how='left')
+                        grouped = pd.merge(grouped, agg_bln2, on=['City', 'No. Barang'], how='left')
+                        grouped = pd.merge(grouped, agg_bln3, on=['City', 'No. Barang'], how='left')
+                        
+                        # 5. Isi NaN (tidak terjual di bulan tsb) dengan 0
+                        grouped.fillna({
+                            'Revenue_Bulan_1': 0,  
+                            'Revenue_Bulan_2': 0,  
+                            'Revenue_Bulan_3': 0
+                        }, inplace=True)
+                        
+                        # 6. Hitung Total, Rata-rata, dan WMA
+                        grouped['Total_Revenue'] = grouped['Revenue_Bulan_1'] + grouped['Revenue_Bulan_2'] + grouped['Revenue_Bulan_3']
+                        grouped['Rata_Rata_Revenue'] = grouped['Total_Revenue'] / 3
+                        
+                        # [BARU] Hitung WMA (Bobot 1-2-3, total bobot 6)
+                        grouped['Revenue_WMA'] = (
+                            (grouped['Revenue_Bulan_1'] * 1) +  
+                            (grouped['Revenue_Bulan_2'] * 2) +  
+                            (grouped['Revenue_Bulan_3'] * 3)
+                        ) / 6
+                        
+                        # 7. [DIUBAH] Jalankan fungsi klasifikasi ABCDE 3 KALI
+                        #    Panggil 'Kategori ABC' untuk Total_Revenue agar dashboard tab2 tetap berfungsi
+                        result_df = classify_abc_by_metric(grouped, 'Total_Revenue', 'Kategori ABC')
+                        result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Revenue', 'ABC_Rata_Rata')
+                        result_df = classify_abc_by_metric(result_df, 'Revenue_WMA', 'ABC_WMA')
+                        
+                        st.session_state.abc_analysis_result = result_df.copy()
+                        st.success("Analisis ABC (3 metode) berhasil dijalankan!")
 
         # --- [LOGIKA TAMPILAN BARU YANG DIUBAH] ---
         if st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
@@ -405,7 +421,7 @@ elif page == "Hasil Analisa ABC":
                 result_display = result_display[result_display['Kategori Barang'].astype(str).isin(selected_kategori_abc)]
             if selected_brand_abc:
                 result_display = result_display[result_display['BRAND Barang'].astype(str).isin(selected_brand_abc)]
-                
+                    
             st.header("Hasil Analisis ABC per Kota")
             
             # Format Angka
@@ -422,7 +438,7 @@ elif page == "Hasil Analisa ABC":
                         
                     # [DIUBAH] Tentukan kolom baru
                     display_cols_order = [
-                        'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', 
+                        'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang',  
                         'Revenue_Bulan_1', 'Revenue_Bulan_2', 'Revenue_Bulan_3',
                         'Total_Revenue', 'Rata_Rata_Revenue', 'Revenue_WMA', # Metrik
                         'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA' # Hasil Analisis
@@ -439,7 +455,7 @@ elif page == "Hasil Analisa ABC":
                         'Total_Revenue': revenue_format,
                         'Rata_Rata_Revenue': revenue_format,
                         'Revenue_WMA': revenue_format, # Format baru
-                    }).apply(lambda x: x.map(highlight_kategori_abc), 
+                    }).apply(lambda x: x.map(highlight_kategori_abc),  
                             subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA']), # Subset baru
                     use_container_width=True)
             # --- AKHIR BLOK PERUBAHAN ---
@@ -461,7 +477,7 @@ elif page == "Hasil Analisa ABC":
             )
 
         elif st.session_state.abc_analysis_result is not None:
-             st.info("Tidak ada data untuk ditampilkan. Harap periksa filter tanggal atau data input Anda.")
+                st.info("Tidak ada data untuk ditampilkan. Harap periksa filter tanggal atau data input Anda.")
 
 
     # =====================================================================================
@@ -546,32 +562,32 @@ elif page == "Hasil Analisa ABC":
             
             # Buat Sub-Tabs
             sub_tab_total, sub_tab_avg, sub_tab_wma = st.tabs([
-                "📈 Analisis by Total Revenue", 
-                "📊 Analisis by Rata-Rata", 
+                "📈 Analisis by Total Revenue",  
+                "📊 Analisis by Rata-Rata",  
                 "📉 Analisis by WMA"
             ])
 
             with sub_tab_total:
                 create_dashboard_view(
-                    df=result_display_dash, 
-                    abc_col='Kategori ABC', 
-                    metric_col='Total_Revenue', 
+                    df=result_display_dash,  
+                    abc_col='Kategori ABC',  
+                    metric_col='Total_Revenue',  
                     metric_name='Total Revenue'
                 )
                 
             with sub_tab_avg:
                 create_dashboard_view(
-                    df=result_display_dash, 
-                    abc_col='ABC_Rata_Rata', 
-                    metric_col='Rata_Rata_Revenue', 
+                    df=result_display_dash,  
+                    abc_col='ABC_Rata_Rata',  
+                    metric_col='Rata_Rata_Revenue',  
                     metric_name='Rata-Rata Revenue'
                 )
 
             with sub_tab_wma:
                 create_dashboard_view(
-                    df=result_display_dash, 
-                    abc_col='ABC_WMA', 
-                    metric_col='Revenue_WMA', 
+                    df=result_display_dash,  
+                    abc_col='ABC_WMA',  
+                    metric_col='Revenue_WMA',  
                     metric_name='WMA Revenue'
                 )
 
