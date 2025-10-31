@@ -569,7 +569,7 @@ elif page == "Hasil Analisa ABC":
                     
                     # --- [PERBAIKAN ERROR StreamlitAPIException] ---
                     # Mengganti .apply(lambda...) dengan .map()
-                    st.dataframe(df_display.style.format({
+                    styler_obj = df_display.style.format({
                         'Revenue_Bulan_1': revenue_format,
                         'Revenue_Bulan_2': revenue_format,
                         'Revenue_Bulan_3': revenue_format,
@@ -579,8 +579,9 @@ elif page == "Hasil Analisa ABC":
                         'Margin Harga': revenue_format, # [BARU]
                         'Margin Persen': percent_format # [BARU]
                     }).map(highlight_kategori_abc,  
-                            subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA']), # <-- PERBAIKAN DI SINI
-                    use_container_width=True)
+                            subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'])
+                    # 2. Konversi ke HTML dan tampilkan
+                    st.markdown(styler_obj.to_html(), unsafe_allow_html=True)
                     # --- [AKHIR PERBAIKAN] ---
             # --- AKHIR BLOK PERUBAHAN ---
 
