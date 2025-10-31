@@ -414,7 +414,7 @@ elif page == "Hasil Analisa ABC":
                 so_df_bln3 = so_df.loc[mask3]
 
                 # 2. [DIUBAH] Agregasi revenue per bulan (termasuk Platform)
-                agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_1')
+                agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='')
                 agg_bln2 = so_df_bln2.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_2')
                 agg_bln3 = so_df_bln3.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_3')
 
@@ -562,6 +562,7 @@ elif page == "Hasil Analisa ABC":
                     df_display = city_df_sorted[display_cols_order]
                     
                     # [DIUBAH] Tampilkan DataFrame dengan format & highlight baru
+                    # [DIUBAH] Tampilkan DataFrame dengan format & highlight baru
                     st.dataframe(df_display.style.format({
                         'Revenue_Bulan_1': revenue_format,
                         'Revenue_Bulan_2': revenue_format,
@@ -571,8 +572,8 @@ elif page == "Hasil Analisa ABC":
                         'Revenue_WMA': revenue_format, 
                         'Margin Harga': revenue_format, # [BARU]
                         'Margin Persen': percent_format # [BARU]
-                    }).apply(lambda x: x.map(highlight_kategori_abc),  
-                            subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA']), # Subset baru
+                    }).map(highlight_kategori_abc,  
+                            subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA']), # <-- INI PERUBAHANNYA
                     use_container_width=True)
             # --- AKHIR BLOK PERUBAHAN ---
 
