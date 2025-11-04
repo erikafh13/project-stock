@@ -263,7 +263,8 @@ if page == "Input Data":
 
 # SELURUH BLOK 'elif page == "Hasil Analisa Stock":' TELAH DIHAPUS
 elif page == "Hasil Analisa ABC":
-    st.title("📊 Analisis ABC Berdasarkan Revenue 3 Bulan Terakhir (Metode Kuartal)")
+    # --- [PATCH 1: UBAH JUDUL] ---
+    st.title("📊 Analisis ABC Berdasarkan Kuantitas 3 Bulan Terakhir (Metode Kuartal)")
     tab1_abc, tab2_abc = st.tabs(["Hasil Tabel", "Dashboard"])
 
     # --- [FUNGSI BARU YANG DIPERBARUI] ---
@@ -271,7 +272,7 @@ elif page == "Hasil Analisa ABC":
     def classify_abc_by_metric(df_input, metric_col_name, output_col_name):
         """
         Melakukan klasifikasi ABCDE berdasarkan grup Kota & Kategori Barang
-        untuk METRIK SPESIFIK (Total_Revenue, Rata_Rata_Revenue, atau WMA).
+        untuk METRIK SPESIFIK (Total_Kuantitas, Rata_Rata_Kuantitas, atau Kuantitas_WMA).
         """
         df = df_input.copy()
         
@@ -324,6 +325,7 @@ elif page == "Hasil Analisa ABC":
         }
         return warna.get(val, '')
 
+    # --- [PATCH 2: UBAH LOGIKA PENGECEKAN DATA] ---
     with tab1_abc:
         # --- [DIUBAH] Pengecekan Data Awal ---
         if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty or st.session_state.df_portal.empty:
@@ -342,18 +344,25 @@ elif page == "Hasil Analisa ABC":
         so_df = all_so_df.copy()
         so_df.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
 
-        # --- Perhitungan Revenue (Sama, tapi sekarang Wajib) ---
+        # --- [DIUBAH] Pengecekan Kuantitas (WAJIB) dan Revenue (Opsional untuk Margin) ---
+        if 'Kuantitas' not in so_df.columns:
+            st.error("❌ ANALISIS GAGAL: Kolom 'Kuantitas' tidak ditemukan.")
+            st.warning("Analisis ini wajib menggunakan data 'Kuantitas'. Silakan periksa kembali file penjualan Anda.")
+            st.stop()
+        
         if 'Harga Sat' in so_df.columns:
+            st.info("✅ Kolom 'Harga Sat' ditemukan. Data margin (jika ada) akan ditampilkan.")
             so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
             so_df['Harga Sat'] = pd.to_numeric(so_df['Harga Sat'], errors='coerce')
             so_df.fillna({'Kuantitas': 0, 'Harga Sat': 0}, inplace=True)
-            so_df['Revenue'] = so_df['Kuantitas'] * so_df['Harga Sat']
+            so_df['Revenue'] = so_df['Kuantitas'] * so_df['Harga Sat'] # Tetap hitung untuk data margin
             st.session_state.revenue_available = True
         else:
-            st.error("❌ ANALISIS GAGAL: Kolom 'Harga Sat' tidak ditemukan.")
-            st.warning("Analisis metode baru ini **wajib** menggunakan data 'Harga Sat' untuk menghitung Revenue. Silakan periksa kembali file penjualan Anda.")
+            st.warning("⚠️ Kolom 'Harga Sat' tidak ditemukan. Analisis ABC (berbasis Kuantitas) akan tetap berjalan, namun data margin tidak akan ditampilkan.")
+            so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
+            so_df.fillna({'Kuantitas': 0}, inplace=True)
             st.session_state.revenue_available = False
-            st.stop() # Hentikan eksekusi jika tidak ada revenue
+        # --- [AKHIR PATCH 2] ---
 
         # --- Preprocessing Data (Sama) ---
         so_df['Nama Dept'] = so_df.apply(map_nama_dept, axis=1)
@@ -402,8 +411,9 @@ elif page == "Hasil Analisa ABC":
         # --- [AKHIR BLOK PERUBAHAN] ---
 
             
+        # --- [PATCH 3: UBAH LOGIKA ANALISIS UTAMA] ---
         if st.button("Jalankan Analisa ABC (Metode Baru)"):
-            with st.spinner("Melakukan perhitungan analisis ABC..."):
+            with st.spinner("Melakukan perhitungan analisis ABC berbasis Kuantitas..."):
                 
                 # 1. Buat 3 DataFrame terfilter untuk setiap bulan
                 mask1 = (so_df['Tgl Faktur'].dt.date >= start_date_bln1) & (so_df['Tgl Faktur'].dt.date <= end_date_bln1)
@@ -413,10 +423,10 @@ elif page == "Hasil Analisa ABC":
                 mask3 = (so_df['Tgl Faktur'].dt.date >= start_date_bln3) & (so_df['Tgl Faktur'].dt.date <= end_date_bln3)
                 so_df_bln3 = so_df.loc[mask3]
 
-                # 2. [DIUBAH] Agregasi revenue per bulan (termasuk Platform)
-                agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_1')
-                agg_bln2 = so_df_bln2.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_2')
-                agg_bln3 = so_df_bln3.groupby(['City', 'No. Barang', 'Platform'])['Revenue'].sum().reset_index(name='Revenue_Bulan_3')
+                # 2. [DIUBAH] Agregasi Kuantitas per bulan (termasuk Platform)
+                agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang', 'Platform'])['Kuantitas'].sum().reset_index(name='Kuantitas_Bulan_1')
+                agg_bln2 = so_df_bln2.groupby(['City', 'No. Barang', 'Platform'])['Kuantitas'].sum().reset_index(name='Kuantitas_Bulan_2')
+                agg_bln3 = so_df_bln3.groupby(['City', 'No. Barang', 'Platform'])['Kuantitas'].sum().reset_index(name='Kuantitas_Bulan_3')
 
                 # 3. [DIUBAH] Siapkan daftar produk master (termasuk Platform)
                 produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang', 'Nama Kategori Barang': 'Kategori Barang'}, inplace=True, errors='ignore')
@@ -440,35 +450,30 @@ elif page == "Hasil Analisa ABC":
                         grouped = pd.merge(grouped, agg_bln3, on=['City', 'No. Barang', 'Platform'], how='left')
                         
                         
-                        # --- [PERBAIKAN ERROR KEYERROR] ---
-                        # 5. Isi NaN (tidak terjual di bulan tsb) dengan 0
-                        # BLOK INI HARUS ADA SEBELUM PERHITUNGAN
+                        # 5. [DIUBAH] Isi NaN (tidak terjual di bulan tsb) dengan 0
                         grouped.fillna({
-                            'Revenue_Bulan_1': 0,  
-                            'Revenue_Bulan_2': 0,  
-                            'Revenue_Bulan_3': 0
+                            'Kuantitas_Bulan_1': 0,  
+                            'Kuantitas_Bulan_2': 0,  
+                            'Kuantitas_Bulan_3': 0
                         }, inplace=True)
                         
-                        # 6. Hitung Total, Rata-rata, dan WMA
-                        # Baris ini sekarang aman dari error
-                        grouped['Total_Revenue'] = grouped['Revenue_Bulan_1'] + grouped['Revenue_Bulan_2'] + grouped['Revenue_Bulan_3']
-                        grouped['Rata_Rata_Revenue'] = grouped['Total_Revenue'] / 3
-                        grouped['Revenue_WMA'] = (
-                            (grouped['Revenue_Bulan_1'] * 1) +  
-                            (grouped['Revenue_Bulan_2'] * 2) +  
-                            (grouped['Revenue_Bulan_3'] * 3)
+                        # 6. [DIUBAH] Hitung Total, Rata-rata, dan WMA Kuantitas
+                        grouped['Total_Kuantitas'] = grouped['Kuantitas_Bulan_1'] + grouped['Kuantitas_Bulan_2'] + grouped['Kuantitas_Bulan_3']
+                        grouped['Rata_Rata_Kuantitas'] = grouped['Total_Kuantitas'] / 3
+                        grouped['Kuantitas_WMA'] = (
+                            (grouped['Kuantitas_Bulan_1'] * 1) +  
+                            (grouped['Kuantitas_Bulan_2'] * 2) +  
+                            (grouped['Kuantitas_Bulan_3'] * 3)
                         ) / 6
-                        # --- [AKHIR PERBAIKAN] ---
                         
-                        
-                        # 7. Jalankan fungsi klasifikasi ABCDE 3 KALI
-                        result_df = classify_abc_by_metric(grouped, 'Total_Revenue', 'Kategori ABC')
-                        result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Revenue', 'ABC_Rata_Rata')
-                        result_df = classify_abc_by_metric(result_df, 'Revenue_WMA', 'ABC_WMA')
+                        # 7. [DIUBAH] Jalankan fungsi klasifikasi ABCDE 3 KALI
+                        result_df = classify_abc_by_metric(grouped, 'Total_Kuantitas', 'Kategori ABC')
+                        result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Kuantitas', 'ABC_Rata_Rata')
+                        result_df = classify_abc_by_metric(result_df, 'Kuantitas_WMA', 'ABC_WMA')
 
-                        # --- [BLOK BARU] ---
+                        # --- [BLOK BARU - TIDAK BERUBAH] ---
                         # 8. Gabungkan dengan Data Portal dan Petakan Margin
-                        if not result_df.empty and 'Nama Barang' in result_df.columns:
+                        if not result_df.empty and 'Nama Barang' in result_df.columns and st.session_state.revenue_available:
                             # Siapkan data portal, pastikan tidak ada No. Barang duplikat jika ada
                             portal_cols = [
                                 'Nama Accurate', 'Margin Harga Offline (Nilai)', 'Margin Persen Offline (%)',
@@ -516,10 +521,16 @@ elif page == "Hasil Analisa ABC":
                                 st.warning("Kolom 'Nama Accurate' tidak ditemukan di Data Portal. Tidak dapat memetakan margin.")
                                 result_df['Margin Harga'] = 0
                                 result_df['Margin Persen'] = 0
+                        else:
+                            # Jika data portal/revenue tidak ada, buat kolom margin kosong
+                            result_df['Margin Harga'] = 0
+                            result_df['Margin Persen'] = 0
                         # --- [AKHIR BLOK BARU] ---
 
                         st.session_state.abc_analysis_result = result_df.copy()
-                        st.success("Analisis ABC (3 metode) berhasil dijalankan!")
+                        st.success("Analisis ABC (3 metode berbasis Kuantitas) berhasil dijalankan!")
+        # --- [AKHIR PATCH 3] ---
+
 
         # --- [LOGIKA TAMPILAN BARU YANG DIUBAH] ---
         if st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
@@ -540,11 +551,12 @@ elif page == "Hasil Analisa ABC":
             if selected_brand_abc:
                 result_display = result_display[result_display['BRAND Barang'].astype(str).isin(selected_brand_abc)]
                     
+            # --- [PATCH 4: UBAH TAMPILAN TABEL HASIL] ---
             st.header("Hasil Analisis ABC per Kota")
             
             # [DIUBAH] Format Angka
-            revenue_format = '{:,.0f}'
-            percent_format = '{:.1%}' # [BARU]
+            number_format = '{:,.0f}' # Untuk Kuantitas dan Margin Harga
+            percent_format = '{:.1%}' # Untuk Margin Persen
             
             # Loop HANYA berdasarkan KOTA
             for city in sorted(result_display['City'].unique()):
@@ -552,38 +564,36 @@ elif page == "Hasil Analisa ABC":
                     
                     city_df = result_display[result_display['City'] == city]
                     
-                    # [DIUBAH] Urutkan berdasarkan Total_Revenue (sebagai default)
-                    city_df_sorted = city_df.sort_values(by=['Total_Revenue', 'Platform'], ascending=[False, True])
+                    # [DIUBAH] Urutkan berdasarkan Total_Kuantitas
+                    city_df_sorted = city_df.sort_values(by=['Total_Kuantitas', 'Platform'], ascending=[False, True])
                         
                     # [DIUBAH] Tentukan kolom baru
                     display_cols_order = [
-                        'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', 'Platform', # [Platform ditambahkan]
-                        'Revenue_Bulan_1', 'Revenue_Bulan_2', 'Revenue_Bulan_3',
-                        'Total_Revenue', 'Rata_Rata_Revenue', 'Revenue_WMA', # Metrik
+                        'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', 'Platform', 
+                        'Kuantitas_Bulan_1', 'Kuantitas_Bulan_2', 'Kuantitas_Bulan_3',
+                        'Total_Kuantitas', 'Rata_Rata_Kuantitas', 'Kuantitas_WMA', # Metrik
                         'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA', # Hasil Analisis
-                        'Margin Harga', 'Margin Persen' # [BARU]
+                        'Margin Harga', 'Margin Persen' # Kolom opsional
                     ]
                     
                     display_cols_order = [col for col in display_cols_order if col in city_df_sorted.columns]
                     df_display = city_df_sorted[display_cols_order]
                     
-                    # --- [PERBAIKAN ERROR StreamlitAPIException] ---
-                    # Mengganti .apply(lambda...) dengan .map()
+                    # --- [DIUBAH] Format Styler ---
                     styler_obj = df_display.style.format({
-                        'Revenue_Bulan_1': revenue_format,
-                        'Revenue_Bulan_2': revenue_format,
-                        'Revenue_Bulan_3': revenue_format,
-                        'Total_Revenue': revenue_format,
-                        'Rata_Rata_Revenue': revenue_format,
-                        'Revenue_WMA': revenue_format, 
-                        'Margin Harga': revenue_format, # [BARU]
+                        'Kuantitas_Bulan_1': number_format,
+                        'Kuantitas_Bulan_2': number_format,
+                        'Kuantitas_Bulan_3': number_format,
+                        'Total_Kuantitas': number_format,
+                        'Rata_Rata_Kuantitas': number_format,
+                        'Kuantitas_WMA': number_format, 
+                        'Margin Harga': number_format, # [BARU]
                         'Margin Persen': percent_format # [BARU]
                     }).map(highlight_kategori_abc,  
                             subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'])
-                    # 2. Konversi ke HTML dan tampilkan
+                    
                     st.markdown(styler_obj.to_html(), unsafe_allow_html=True)
-                    # --- [AKHIR PERBAIKAN] ---
-            # --- AKHIR BLOK PERUBAHAN ---
+            # --- [AKHIR PATCH 4] ---
 
             # --- [LOGIKA UNDUH BARU] ---
             # Tidak perlu diubah, karena df_to_download sudah berisi semua kolom baru
@@ -605,9 +615,7 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan. Harap periksa filter tanggal atau data input Anda.")
 
 
-    # =====================================================================================
-    # [BLOK DASHBOARD BARU]
-    # =====================================================================================
+    # --- [PATCH 5: UBAH LOGIKA DASHBOARD] ---
     with tab2_abc:
         
         # --- [FUNGSI HELPER BARU UNTUK DASHBOARD] ---
@@ -682,15 +690,13 @@ elif page == "Hasil Analisa ABC":
         # --- [AKHIR FUNGSI HELPER] ---
 
 
-        # --- [LOGIKA UTAMA DASHBOARD BARU] ---
-        # Dashboard ini akan tetap berfungsi, sekarang akan mengagregasi
-        # data yang lebih detail (termasuk platform)
+        # --- [LOGIKA UTAMA DASHBOARD DIUBAH] ---
         if 'abc_analysis_result' in st.session_state and st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
             result_display_dash = st.session_state.abc_analysis_result.copy()
             
             # Buat Sub-Tabs
             sub_tab_total, sub_tab_avg, sub_tab_wma = st.tabs([
-                "📈 Analisis by Total Revenue",  
+                "📈 Analisis by Total Kuantitas",  
                 "📊 Analisis by Rata-Rata",  
                 "📉 Analisis by WMA"
             ])
@@ -699,25 +705,26 @@ elif page == "Hasil Analisa ABC":
                 create_dashboard_view(
                     df=result_display_dash,  
                     abc_col='Kategori ABC',  
-                    metric_col='Total_Revenue',  
-                    metric_name='Total Revenue'
+                    metric_col='Total_Kuantitas',  
+                    metric_name='Total Kuantitas'
                 )
                 
             with sub_tab_avg:
                 create_dashboard_view(
                     df=result_display_dash,  
                     abc_col='ABC_Rata_Rata',  
-                    metric_col='Rata_Rata_Revenue',  
-                    metric_name='Rata-Rata Revenue'
+                    metric_col='Rata_Rata_Kuantitas',  
+                    metric_name='Rata-Rata Kuantitas'
                 )
 
             with sub_tab_wma:
                 create_dashboard_view(
                     df=result_display_dash,  
                     abc_col='ABC_WMA',  
-                    metric_col='Revenue_WMA',  
-                    metric_name='WMA Revenue'
+                    metric_col='Kuantitas_WMA',  
+                    metric_name='WMA Kuantitas'
                 )
 
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis di tab 'Hasil Tabel' terlebih dahulu.")
+    # --- [AKHIR PATCH 5] ---
