@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import pandas as pd # <-- Tambahkan import pandas
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -12,13 +13,12 @@ import utils  # Impor file utilitas Anda
 st.set_page_config(layout="wide", page_title="Analisis ABC")
 
 # --- Inisialisasi Session State ---
-# Tetap di file utama untuk memastikan state ada sebelum halaman dimuat
 if 'df_penjualan' not in st.session_state:
     st.session_state.df_penjualan = pd.DataFrame()
 if 'produk_ref' not in st.session_state:
     st.session_state.produk_ref = pd.DataFrame()
-if 'df_portal' not in st.session_state:
-    st.session_state.df_portal = pd.DataFrame() 
+# [DIHAPUS] if 'df_portal' not in st.session_state:
+#    st.session_state.df_portal = pd.DataFrame() 
 if 'abc_analysis_result' not in st.session_state:
     st.session_state.abc_analysis_result = None
 if 'abc_metric' not in st.session_state:
