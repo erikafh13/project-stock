@@ -9,8 +9,7 @@ import utils # Impor file utilitas Anda
 
 def classify_abc_by_metric(df_input, metric_col_name, output_col_name):
     """
-    Melakukan klasifikasi ABCDE berdasarkan grup Kota & Kategori Barang
-    untuk METRIK SPESIFIK (Total_Kuantitas, Rata_Rata_Kuantitas, atau Kuantitas_WMA).
+    Melakukan klasifikasi ABCDE berdasarkan grup Kota & Kategori Barang.
     """
     df = df_input.copy()
     max_metric_col = f'Max_{metric_col_name}_in_Group'
@@ -31,9 +30,6 @@ def classify_abc_by_metric(df_input, metric_col_name, output_col_name):
     df.drop(columns=[max_metric_col], inplace=True)
     return df
 
-# def highlight_kategori_abc(val): <-- Dihapus karena st.dataframe tidak menggunakannya
-#     ...
-
 def create_dashboard_view(df, abc_col, metric_col, metric_name):
     """
     Membuat satu set lengkap komponen dashboard (metrik + 4 chart)
@@ -49,7 +45,6 @@ def create_dashboard_view(df, abc_col, metric_col, metric_name):
         
     st.markdown("---")
     
-    # 2. Metrik 5 Kolom
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric(f"Produk Kelas A", f"{abc_summary.loc['A', 'count']:.0f} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% {metric_name}")
     col2.metric(f"Produk Kelas B", f"{abc_summary.loc['B', 'count']:.0f} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% {metric_name}")
@@ -59,7 +54,6 @@ def create_dashboard_view(df, abc_col, metric_col, metric_name):
 
     st.markdown("---")
     
-    # 3. Chart Komposisi & Kontribusi
     col_chart1, col_chart2 = st.columns(2)
     with col_chart1:
         st.subheader("Komposisi Produk per Kelas ABCDE")
@@ -79,7 +73,6 @@ def create_dashboard_view(df, abc_col, metric_col, metric_name):
         
     st.markdown("---")
     
-    # 4. Chart Top 10 & Per Kota
     col_top1, col_top2 = st.columns(2)
     with col_top1:
         st.subheader(f"Top 10 Produk Terlaris (by {metric_name})")
@@ -91,16 +84,14 @@ def create_dashboard_view(df, abc_col, metric_col, metric_name):
         city_sales = df.groupby('City')[metric_col].sum().sort_values(ascending=False)
         st.bar_chart(city_sales)
 
-
 # --- FUNGSI UTAMA UNTUK MENJALANKAN ANALISIS (dipanggil oleh tombol) ---
 @st.cache_data
-# portal_df dihapus dari argumen
 def run_abc_analysis(so_df_processed, produk_ref, _start_date_bln1, _end_date_bln1, _start_date_bln2, _end_date_bln2, _start_date_bln3, _end_date_bln3):
-    """Fungsi ini berisi logika inti analisis ABC Anda."""
-    
+    """
+    Fungsi ini berisi logika inti analisis ABC Anda.
+    """
     so_df = so_df_processed.copy()
     
-    # 1. Filter 3 DataFrame
     mask1 = (so_df['Tgl Faktur'].dt.date >= _start_date_bln1) & (so_df['Tgl Faktur'].dt.date <= _end_date_bln1)
     so_df_bln1 = so_df.loc[mask1]
     mask2 = (so_df['Tgl Faktur'].dt.date >= _start_date_bln2) & (so_df['Tgl Faktur'].dt.date <= _end_date_bln2)
@@ -108,12 +99,10 @@ def run_abc_analysis(so_df_processed, produk_ref, _start_date_bln1, _end_date_bl
     mask3 = (so_df['Tgl Faktur'].dt.date >= _start_date_bln3) & (so_df['Tgl Faktur'].dt.date <= _end_date_bln3)
     so_df_bln3 = so_df.loc[mask3]
 
-    # 2. Agregasi Kuantitas
     agg_bln1 = so_df_bln1.groupby(['City', 'No. Barang', 'Platform'])['Kuantitas'].sum().reset_index(name='Kuantitas_Bulan_1')
     agg_bln2 = so_df_bln2.groupby(['City', 'No. Barang', 'Platform'])['Kuantitas'].sum().reset_index(name='Kuantitas_Bulan_2')
     agg_bln3 = so_df_bln3.groupby(['City', 'No. Barang', 'Platform'])['Kuantitas'].sum().reset_index(name='Kuantitas_Bulan_3')
 
-    # 3. Siapkan daftar produk master
     produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang', 'Nama Kategori Barang': 'Kategori Barang'}, inplace=True, errors='ignore')
     barang_list = produk_ref[['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']].drop_duplicates()
     city_list = so_df['City'].dropna().unique()
@@ -129,27 +118,58 @@ def run_abc_analysis(so_df_processed, produk_ref, _start_date_bln1, _end_date_bl
     ).to_frame(index=False)
     kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
     
-    # 4. Gabungkan (merge) data bulanan
     grouped = pd.merge(kombinasi, agg_bln1, on=['City', 'No. Barang', 'Platform'], how='left')
     grouped = pd.merge(grouped, agg_bln2, on=['City', 'No. Barang', 'Platform'], how='left')
     grouped = pd.merge(grouped, agg_bln3, on=['City', 'No. Barang', 'Platform'], how='left')
     
-    # 5. Isi NaN
     grouped.fillna({'Kuantitas_Bulan_1': 0, 'Kuantitas_Bulan_2': 0, 'Kuantitas_Bulan_3': 0}, inplace=True)
     
-    # 6. Hitung Metrik Kuantitas
     grouped['Total_Kuantitas'] = grouped['Kuantitas_Bulan_1'] + grouped['Kuantitas_Bulan_2'] + grouped['Kuantitas_Bulan_3']
     grouped['Rata_Rata_Kuantitas'] = grouped['Total_Kuantitas'] / 3
     grouped['Kuantitas_WMA'] = ((grouped['Kuantitas_Bulan_1'] * 1) + (grouped['Kuantitas_Bulan_2'] * 2) + (grouped['Kuantitas_Bulan_3'] * 3)) / 6
     
-    # 7. Jalankan klasifikasi ABCDE
     result_df = classify_abc_by_metric(grouped, 'Total_Kuantitas', 'Kategori ABC')
     result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Kuantitas', 'ABC_Rata_Rata')
     result_df = classify_abc_by_metric(result_df, 'Kuantitas_WMA', 'ABC_WMA')
 
-    # 8. Blok perhitungan margin telah dihapus
-    
     return result_df
+
+# --- [FUNGSI BARU UNTUK MEMPERCEPAT TABEL] ---
+@st.cache_data
+def preprocess_city_dfs(_analysis_result_df):
+    """
+    Mem-filter dan men-sorting DataFrame untuk setiap kota SEKALI SAJA
+    dan menyimpannya dalam cache.
+    Mengembalikan dictionary: {'Surabaya': df_surabaya, 'Jakarta': df_jakarta, ...}
+    """
+    if _analysis_result_df is None or _analysis_result_df.empty:
+        return {}
+        
+    city_dfs = {}
+    # Filter 'Others' sekali saja di awal
+    df_to_process = _analysis_result_df[_analysis_result_df['City'] != 'Others'].copy()
+    
+    # Definisikan urutan kolom sekali saja
+    display_cols_order = [
+        'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', 'Platform', 
+        'Kuantitas_Bulan_1', 'Kuantitas_Bulan_2', 'Kuantitas_Bulan_3',
+        'Total_Kuantitas', 'Rata_Rata_Kuantitas', 'Kuantitas_WMA',
+        'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'
+    ]
+    
+    all_cities = sorted(df_to_process['City'].unique())
+    
+    for city in all_cities:
+        city_df = df_to_process[df_to_process['City'] == city]
+        city_df_sorted = city_df.sort_values(by=['Total_Kuantitas', 'Platform'], ascending=[False, True])
+        
+        # Cek kolom mana saja yang ada
+        final_cols = [col for col in display_cols_order if col in city_df_sorted.columns]
+        # Simpan DataFrame yang sudah jadi ke dictionary
+        city_dfs[city] = city_df_sorted[final_cols]
+        
+    return city_dfs
+# --- [AKHIR FUNGSI BARU] ---
 
 
 # --- FUNGSI RENDER HALAMAN UTAMA ---
@@ -160,16 +180,13 @@ def render_page():
 
     with tab1_abc:
         # --- Pengecekan Data Awal ---
-        # Pengecekan df_portal dihapus
         if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
             st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
             
         all_so_df = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
-        # portal_df dihapus
         
-        # portal_df dihapus dari loop
         for df in [all_so_df, produk_ref]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
@@ -182,10 +199,9 @@ def render_page():
             st.error("❌ ANALISIS GAGAL: Kolom 'Kuantitas' tidak ditemukan.")
             st.stop()
         
-        # Blok ini disederhanakan
         so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
         so_df.fillna({'Kuantitas': 0}, inplace=True)
-        st.session_state.revenue_available = False # Setel ke False
+        st.session_state.revenue_available = False
         
         if 'Harga Sat' in so_df.columns:
             st.info("Info: Kolom 'Harga Sat' terdeteksi, namun tidak digunakan dalam analisis ABC ini.")
@@ -225,7 +241,6 @@ def render_page():
             
         if st.button("Jalankan Analisa ABC (Metode Baru)"):
             with st.spinner("Melakukan perhitungan analisis ABC berbasis Kuantitas..."):
-                # portal_df dihapus dari panggilan fungsi
                 result_df = run_abc_analysis(
                     so_df, produk_ref,
                     start_date_bln1, end_date_bln1,
@@ -237,47 +252,46 @@ def render_page():
 
         # --- Tampilkan Hasil Analisis ---
         if st.session_state.abc_analysis_result is not None and not st.session_state.abc_analysis_result.empty:
-            result_display = st.session_state.abc_analysis_result.copy()
-            result_display = result_display[result_display['City'] != 'Others']
+            
+            # Ambil data dari session state
+            result_data = st.session_state.abc_analysis_result.copy()
+            
+            # Ambil produk ref untuk filter (ini cepat)
+            produk_ref_filters = st.session_state.produk_ref.copy() 
             
             st.header("Filter Hasil Analisis")
             col_f1, col_f2 = st.columns(2)
-            kategori_options_abc = sorted(produk_ref['Kategori Barang'].dropna().unique().astype(str))
+            kategori_options_abc = sorted(produk_ref_filters['Kategori Barang'].dropna().unique().astype(str))
             selected_kategori_abc = col_f1.multiselect("Filter berdasarkan Kategori:", kategori_options_abc, key="abc_cat_filter")
-            brand_options_abc = sorted(produk_ref['BRAND Barang'].dropna().unique().astype(str))
+            brand_options_abc = sorted(produk_ref_filters['BRAND Barang'].dropna().unique().astype(str))
             selected_brand_abc = col_f2.multiselect("Filter berdasarkan Brand:", brand_options_abc, key="abc_brand_filter")
             
+            # Terapkan filter JIKA ada
             if selected_kategori_abc:
-                result_display = result_display[result_display['Kategori Barang'].astype(str).isin(selected_kategori_abc)]
+                result_data = result_data[result_data['Kategori Barang'].astype(str).isin(selected_kategori_abc)]
             if selected_brand_abc:
-                result_display = result_display[result_display['BRAND Barang'].astype(str).isin(selected_brand_abc)]
+                result_data = result_data[result_data['BRAND Barang'].astype(str).isin(selected_brand_abc)]
                     
+            # --- [PERUBAHAN UTAMA UNTUK FIX LEMOT] ---
+            # Panggil fungsi cache BARU di sini.
+            # Ini hanya akan berjalan sekali jika 'result_data' berubah (misal saat filter)
+            with st.spinner("Mempersiapkan data per kota..."):
+                preprocessed_city_data = preprocess_city_dfs(result_data)
+            # --- [AKHIR PERUBAHAN] ---
+            
             st.header("Hasil Analisis ABC per Kota")
             
-            # number_format = '{:,.0f}' <-- Dihapus, akan diatur di st.dataframe
-            
-            for city in sorted(result_display['City'].unique()):
+            # Loop ini sekarang SANGAT CEPAT
+            for city in preprocessed_city_data.keys():
                 with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
-                    city_df = result_display[result_display['City'] == city]
-                    city_df_sorted = city_df.sort_values(by=['Total_Kuantitas', 'Platform'], ascending=[False, True])
-                        
-                    # Kolom margin dihapus
-                    display_cols_order = [
-                        'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', 'Platform', 
-                        'Kuantitas_Bulan_1', 'Kuantitas_Bulan_2', 'Kuantitas_Bulan_3',
-                        'Total_Kuantitas', 'Rata_Rata_Kuantitas', 'Kuantitas_WMA',
-                        'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'
-                    ]
-                    display_cols_order = [col for col in display_cols_order if col in city_df_sorted.columns]
-                    df_display = city_df_sorted[display_cols_order]
                     
-                    # --- [INI PERUBAHAN UTAMA UNTUK FIX CRASH] ---
-                    # Mengganti st.markdown(styler_obj.to_html()) dengan st.dataframe()
+                    # Ambil DataFrame yang sudah jadi. Tidak ada filtering/sorting!
+                    df_display = preprocessed_city_data[city]
+                    
                     st.dataframe(
                         df_display,
                         use_container_width=True,
                         column_config={
-                            # Format angka agar mudah dibaca
                             "Kuantitas_Bulan_1": st.column_config.NumberColumn(format="%d"),
                             "Kuantitas_Bulan_2": st.column_config.NumberColumn(format="%d"),
                             "Kuantitas_Bulan_3": st.column_config.NumberColumn(format="%d"),
@@ -285,13 +299,14 @@ def render_page():
                             "Rata_Rata_Kuantitas": st.column_config.NumberColumn(format="%.2f"),
                             "Kuantitas_WMA": st.column_config.NumberColumn(format="%.2f"),
                         },
-                        hide_index=True # Opsional, agar lebih rapi
+                        hide_index=True 
                     )
-                    # --- [AKHIR PERUBAHAN] ---
+            # --- [AKHIR PERUBAHAN LOOP] ---
 
             # --- Logika Unduh ---
             st.header("💾 Unduh Hasil Analisis ABC")
-            df_to_download = result_display if (selected_kategori_abc or selected_brand_abc) else st.session_state.abc_analysis_result
+            # Gunakan 'result_data' yang sudah difilter untuk diunduh
+            df_to_download = result_data
             excel_data_final = utils.convert_df_to_excel(df_to_download)
             st.download_button(
                 "📥 Unduh Hasil Analisis ABC Lengkap (Excel)",
