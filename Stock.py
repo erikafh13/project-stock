@@ -143,9 +143,6 @@ def convert_df_to_excel(df):
 #                                       ROUTING HALAMAN
 # =====================================================================================
 
-# Sisa kode di bawah ini tetap sama persis dan tidak perlu diubah.
-# Anda dapat menyalin seluruh blok kode ini untuk menggantikan file Anda.
-
 if page == "Input Data":
     st.title("📥 Input Data")
     st.markdown("Muat atau muat ulang data yang diperlukan dari Google Drive.")
@@ -565,12 +562,18 @@ elif page == "Hasil Analisa Stock":
             else:
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Sesuaikan filter Anda.")
 
+# =====================================================================================
+#                               HALAMAN ANALISA ABC (MODIFIKASI)
+# =====================================================================================
 
 elif page == "Hasil Analisa ABC":
     st.title("📊 Analisis ABC Berdasarkan Metrik Penjualan Dinamis")
-    # ... (kode untuk halaman Analisa ABC tidak diubah) ...
     tab1_abc, tab2_abc = st.tabs(["Hasil Tabel", "Dashboard"])
+
     with tab1_abc:
+        # --- [MODIFIKASI] Fungsi Analisis ABC ---
+
+        # Metode 1: Persentase (Kode Asli Anda)
         def classify_abc_dynamic(df_grouped, metric_col='Metrik_Penjualan'):
             abc_results = []
             if 'City' not in df_grouped.columns:
@@ -593,13 +596,60 @@ elif page == "Hasil Analisa ABC":
                 abc_results.append(result)
             return pd.concat(abc_results, ignore_index=True) if abc_results else pd.DataFrame()
 
-        def highlight_kategori_abc(val):
-            warna = {'A': 'background-color: #cce5ff', 'B': 'background-color: #d4edda', 'C': 'background-color: #fff3cd', 'D': 'background-color: #f8d7da'}
-            return warna.get(val, '')
+        # [BARU] Metode 2: Benchmark Kategori (Permintaan Anda)
+        def classify_abc_benchmark(df_grouped, metric_col='Metrik_Penjualan'):
+            df = df_grouped.copy()
+            if 'Kategori Barang' not in df.columns:
+                st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
+                df['Kategori ABC (Benchmark)'] = 'N/A'
+                return df
+            
+            # Cari penjualan tertinggi PER KOTA dan PER KATEGORI BARANG
+            df['Max_Kategori_Kota'] = df.groupby(['City', 'Kategori Barang'])[metric_col].transform('max')
+            
+            def apply_category(row):
+                metric = row[metric_col]
+                max_val = row['Max_Kategori_Kota']
+                
+                if metric <= 0:
+                    return 'E'
+                if max_val == 0: # Jika max-nya 0, semua di grup itu (yang > 0) tetap D
+                    return 'D' 
+                
+                kuartal_1 = max_val * 0.75
+                kuartal_2 = max_val * 0.50
+                kuartal_3 = max_val * 0.25
 
+                if metric > kuartal_1:
+                    return 'A'
+                elif metric > kuartal_2:
+                    return 'B'
+                elif metric > kuartal_3:
+                    return 'C'
+                else: # (metric > 0) dan (metric <= kuartal_3)
+                    return 'D'
+                    
+            df['Kategori ABC (Benchmark)'] = df.apply(apply_category, axis=1)
+            return df
+
+        # --- [MODIFIKASI] Fungsi Highlighting ---
+        
+        # [BARU] Highlight untuk Metode Persentase (A, B, C, D)
+        def highlight_kategori_abc_persen(val):
+            warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da'}
+            return f'background-color: {warna.get(val, "")}'
+        
+        # [BARU] Highlight untuk Metode Benchmark (A, B, C, D, E)
+        def highlight_kategori_abc_benchmark(val):
+            warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da', 'E': '#e9ecef'} # E = Abu-abu
+            return f'background-color: {warna.get(val, "")}'
+
+        # --- Validasi Data ---
         if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
             st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
+            
+        # --- Preprocessing Data ---
         all_so_df = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
         for df in [all_so_df, produk_ref]:
@@ -611,37 +661,81 @@ elif page == "Hasil Analisa ABC":
         so_df['City'] = so_df['Nama Dept'].apply(map_city)
         so_df['Tgl Faktur'] = pd.to_datetime(so_df['Tgl Faktur'], dayfirst=True, errors='coerce')
         so_df.dropna(subset=['Tgl Faktur'], inplace=True)
+
+        # --- [MODIFIKASI] Filter Tanggal ---
         st.header("Filter Rentang Waktu Analisis ABC")
         today = datetime.now().date()
-        date_option = st.selectbox("Pilih Rentang Waktu:",("7 Hari Terakhir", "30 Hari Terakhir", "90 Hari Terakhir", "Custom"))
-        if date_option == "7 Hari Terakhir":
-            start_date, end_date = today - timedelta(days=6), today
-        elif date_option == "30 Hari Terakhir":
-            start_date, end_date = today - timedelta(days=29), today
-        elif date_option == "90 Hari Terakhir":
-            start_date, end_date = today - timedelta(days=89), today
-        else: # Custom
-            col1, col2 = st.columns(2)
-            start_date = col1.date_input("Tanggal Awal", value=today - timedelta(days=29))
-            end_date = col2.date_input("Tanggal Akhir", value=today)
+        min_date = so_df['Tgl Faktur'].min().date()
+        max_date = so_df['Tgl Faktur'].max().date()
+
+        col1, col2 = st.columns(2)
+        start_date = col1.date_input("Tanggal Awal", value=max_date - timedelta(days=29), min_value=min_date, max_value=max_date)
+        end_date = col2.date_input("Tanggal Akhir", value=max_date, min_value=min_date, max_value=max_date)
+
+        # --- [MODIFIKASI] Tombol Eksekusi ---
         if st.button("Jalankan Analisa ABC"):
-            with st.spinner("Melakukan perhitungan analisis ABC..."):
+            with st.spinner("Melakukan perhitungan analisis ABC (Kedua Metode)..."):
+                # 1. Filter data berdasarkan tanggal
                 mask = (so_df['Tgl Faktur'].dt.date >= start_date) & (so_df['Tgl Faktur'].dt.date <= end_date)
                 so_df_filtered = so_df.loc[mask].copy()
+
+                if so_df_filtered.empty:
+                    st.error("Tidak ada data penjualan pada rentang tanggal yang dipilih.")
+                    st.session_state.abc_analysis_result = None
+                    st.stop()
+
+                # 2. Siapkan master list produk
                 produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang', 'Nama Kategori Barang': 'Kategori Barang'}, inplace=True, errors='ignore')
                 barang_list = produk_ref[['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']].drop_duplicates()
-                city_list = so_df_filtered['City'].dropna().unique()
+                
+                # 3. Buat kombinasi lengkap (Penting untuk produk yg tidak terjual)
+                city_list = so_df['City'].dropna().unique() # Ambil dari so_df utuh agar semua kota terdaftar
                 kombinasi = pd.MultiIndex.from_product([city_list, barang_list['No. Barang']], names=['City', 'No. Barang']).to_frame(index=False)
                 kombinasi = pd.merge(kombinasi, barang_list, on='No. Barang', how='left')
+                
+                # 4. Agregasi penjualan dari data terfilter
                 agg_so = so_df_filtered.groupby(['City', 'No. Barang'])['Kuantitas'].sum().reset_index(name='Metrik_Penjualan')
+                
+                # 5. Gabungkan master list dengan penjualan (hasil = 'grouped')
                 grouped = pd.merge(kombinasi, agg_so, on=['City', 'No. Barang'], how='left')
                 grouped['Metrik_Penjualan'] = grouped['Metrik_Penjualan'].fillna(0)
-                result = classify_abc_dynamic(grouped, metric_col='Metrik_Penjualan')
-                st.session_state.abc_analysis_result = result.copy()
-                st.success("Analisis ABC berhasil dijalankan!")
+                
+                # --- [BARU] Jalankan KEDUA metode analisis ---
+                
+                # Metode 1: Persentase
+                result_persen = classify_abc_dynamic(grouped.copy(), metric_col='Metrik_Penjualan')
+                result_persen.rename(columns={
+                    'Kategori ABC': 'Kategori ABC (Persen)',
+                    '% kontribusi': '% Kontribusi (Persen)',
+                    '% Kumulatif': '% Kumulatif (Persen)'
+                }, inplace=True)
+                
+                # Metode 2: Benchmark Kategori
+                # Fungsi ini akan menambah kolom 'Kategori ABC (Benchmark)' dll
+                result_benchmark = classify_abc_benchmark(grouped.copy(), metric_col='Metrik_Penjualan')
+
+                # 6. Gabungkan hasil dari kedua metode
+                key_cols = ['City', 'No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang', 'Metrik_Penjualan']
+                cols_from_persen = ['Kategori ABC (Persen)', '% Kontribusi (Persen)', '% Kumulatif (Persen)']
+                cols_from_benchmark = ['Kategori ABC (Benchmark)', 'Max_Kategori_Kota'] # Ambil Max_Kategori_Kota untuk referensi
+
+                # Gabungkan
+                result_final = pd.merge(
+                    result_persen[key_cols + cols_from_persen],
+                    result_benchmark[key_cols + cols_from_benchmark],
+                    on=key_cols,
+                    how='left'
+                )
+                
+                st.session_state.abc_analysis_result = result_final.copy()
+                st.success("Analisis ABC (Kedua Metode) berhasil dijalankan!")
+        
+        # --- [MODIFIKASI] Tampilan Hasil ---
         if st.session_state.abc_analysis_result is not None:
             result_display = st.session_state.abc_analysis_result.copy()
             result_display = result_display[result_display['City'] != 'Others']
+            
+            # Filter (tidak berubah)
             st.header("Filter Hasil Analisis")
             col_f1, col_f2 = st.columns(2)
             kategori_options_abc = sorted(produk_ref['Kategori Barang'].dropna().unique().astype(str))
@@ -652,25 +746,96 @@ elif page == "Hasil Analisa ABC":
                 result_display = result_display[result_display['Kategori Barang'].astype(str).isin(selected_kategori_abc)]
             if selected_brand_abc:
                 result_display = result_display[result_display['BRAND Barang'].astype(str).isin(selected_brand_abc)]
+            
+            # [MODIFIKASI] Tabel per Kota
             st.header("Hasil Analisis ABC per Kota")
             for city in sorted(result_display['City'].unique()):
                 with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
                     city_df = result_display[result_display['City'] == city]
-                    display_cols_order = ['No. Barang', 'BRAND Barang', 'Nama Barang', 'Kategori Barang', 'Metrik_Penjualan', 'Kategori ABC', '% kontribusi', '% Kumulatif']
-                    df_city_display = city_df[display_cols_order]
-                    st.dataframe(df_city_display.style.format({'Metrik_Penjualan': '{:.2f}', '% kontribusi': '{:.2f}%', '% Kumulatif': '{:.2f}%'}).apply(lambda x: x.map(highlight_kategori_abc), subset=['Kategori ABC']), use_container_width=True)
+                    
+                    # [BARU] Urutan kolom baru
+                    display_cols_order = [
+                        'No. Barang', 'BRAND Barang', 'Nama Barang', 'Kategori Barang', 
+                        'Metrik_Penjualan', 'Kategori ABC (Persen)', 'Kategori ABC (Benchmark)',
+                        '% Kontribusi (Persen)', '% Kumulatif (Persen)', 'Max_Kategori_Kota'
+                    ]
+                    # Pastikan semua kolom ada sebelum menampilkannya
+                    display_cols = [col for col in display_cols_order if col in city_df.columns]
+                    df_city_display = city_df[display_cols]
+                    
+                    # [MODIFIKASI] Terapkan 2 highlight
+                    st.dataframe(
+                        df_city_display.style
+                            .format({
+                                'Metrik_Penjualan': '{:.0f}', 
+                                '% Kontribusi (Persen)': '{:.2f}%', 
+                                '% Kumulatif (Persen)': '{:.2f}%',
+                                'Max_Kategori_Kota': '{:.0f}'
+                            })
+                            .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen)'])
+                            .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark)']),
+                        use_container_width=True
+                    )
+            
+            # [MODIFIKASI] Tabel Gabungan
             st.header("📊 Tabel Gabungan Seluruh Kota (ABC)")
             with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
                 keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
-                pivot_abc = result_display.pivot_table(index=keys, columns='City', values=['Metrik_Penjualan', 'Kategori ABC'], aggfunc={'Metrik_Penjualan': 'sum', 'Kategori ABC': 'first'})
+                
+                # [BARU] Tambahkan kolom benchmark ke pivot
+                pivot_abc = result_display.pivot_table(
+                    index=keys, 
+                    columns='City', 
+                    values=['Metrik_Penjualan', 'Kategori ABC (Persen)', 'Kategori ABC (Benchmark)'], 
+                    aggfunc={
+                        'Metrik_Penjualan': 'sum', 
+                        'Kategori ABC (Persen)': 'first',
+                        'Kategori ABC (Benchmark)': 'first'
+                    }
+                )
                 pivot_abc.columns = [f"{level1}_{level0}" for level0, level1 in pivot_abc.columns]
                 pivot_abc.reset_index(inplace=True)
-                total_abc = result_display.groupby(keys).agg(Total_Metrik=('Metrik_Penjualan', 'sum')).reset_index()
-                total_abc['City'] = 'All'
-                total_abc_classified = classify_abc_dynamic(total_abc.rename(columns={'Total_Metrik': 'Metrik_Penjualan'}), metric_col='Metrik_Penjualan')
-                total_abc_classified.rename(columns={'Kategori ABC': 'All_Kategori_ABC', '% kontribusi': 'All_%_Kontribusi'}, inplace=True)
-                pivot_abc_final = pd.merge(pivot_abc, total_abc_classified[keys + ['All_Kategori_ABC', 'All_%_Kontribusi']], on=keys, how='left')
+                
+                # --- [MODIFIKASI] Perhitungan Total Gabungan ("All") ---
+                total_abc = result_display.groupby(keys).agg(
+                    Metrik_Penjualan=('Metrik_Penjualan', 'sum')
+                ).reset_index()
+                total_abc['City'] = 'All' # Dummy city untuk fungsi
+                
+                # Perlu 'Kategori Barang' untuk metode benchmark
+                kategori_mapping = result_display[keys].drop_duplicates()
+                total_abc = pd.merge(total_abc, kategori_mapping, on=keys, how='left')
+
+                # Metode 1 (Persen) untuk 'All'
+                total_abc_classified_persen = classify_abc_dynamic(
+                    total_abc.copy(), 
+                    metric_col='Metrik_Penjualan'
+                )
+                total_abc_classified_persen.rename(columns={
+                    'Kategori ABC': 'All_Kategori_ABC (Persen)', 
+                    '% kontribusi': 'All_%_Kontribusi (Persen)'
+                }, inplace=True)
+                
+                # Metode 2 (Benchmark) untuk 'All'
+                total_abc_classified_benchmark = classify_abc_benchmark(
+                    total_abc.copy(), 
+                    metric_col='Metrik_Penjualan'
+                )
+                total_abc_classified_benchmark.rename(columns={
+                    'Kategori ABC (Benchmark)': 'All_Kategori_ABC (Benchmark)'
+                }, inplace=True)
+
+                # Gabungkan hasil 'All'
+                pivot_abc_final = pd.merge(pivot_abc, 
+                                           total_abc_classified_persen[keys + ['All_Kategori_ABC (Persen)', 'All_%_Kontribusi (Persen)']], 
+                                           on=keys, how='left')
+                pivot_abc_final = pd.merge(pivot_abc_final, 
+                                           total_abc_classified_benchmark[keys + ['All_Kategori_ABC (Benchmark)']], 
+                                           on=keys, how='left')
+                
                 st.dataframe(pivot_abc_final, use_container_width=True)
+                
+            # Download (tidak perlu diubah, akan otomatis mengambil pivot_abc_final yg baru)
             st.header("💾 Unduh Hasil Analisis ABC")
             output_abc = BytesIO()
             with pd.ExcelWriter(output_abc, engine='openpyxl') as writer:
@@ -680,39 +845,101 @@ elif page == "Hasil Analisa ABC":
                     result_display[result_display['City'] == city].to_excel(writer, sheet_name=sheet_name, index=False)
             st.download_button("📥 Unduh Hasil Analisis ABC (Excel)",data=output_abc.getvalue(),file_name=f"Hasil_Analisis_ABC_{start_date}_sd_{end_date}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+    # --- [MODIFIKASI TOTAL] Dashboard ---
     with tab2_abc:
         st.header("📈 Dashboard Analisis ABC")
         if 'abc_analysis_result' in st.session_state and st.session_state.abc_analysis_result is not None:
             result_display_dash = st.session_state.abc_analysis_result.copy()
+            
+            # [BARU] Pilihan Metode Dashboard
+            metode_dashboard = st.selectbox(
+                "Pilih Metode ABC untuk Dashboard:",
+                ("Metode Persentase (A, B, C, D)", "Metode Benchmark Kategori (A, B, C, D, E)")
+            )
+            
+            if metode_dashboard == "Metode Persentase (A, B, C, D)":
+                kategori_col = 'Kategori ABC (Persen)'
+                kategori_labels = ['A', 'B', 'C', 'D']
+                colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da']
+                metric_labels = {
+                    'A': ("Produk Kelas A", "{:.1f}% Penjualan"),
+                    'B': ("Produk Kelas B", "{:.1f}% Penjualan"),
+                    'C': ("Produk Kelas C", "{:.1f}% Penjualan"),
+                    'D': ("Produk Kelas D", "Tidak Terjual")
+                }
+            else: # Metode Benchmark
+                kategori_col = 'Kategori ABC (Benchmark)'
+                kategori_labels = ['A', 'B', 'C', 'D', 'E']
+                colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da', '#e9ecef']
+                metric_labels = {
+                    'A': ("Produk Kelas A", "{:.1f}% Penjualan"),
+                    'B': ("Produk Kelas B", "{:.1f}% Penjualan"),
+                    'C': ("Produk Kelas C", "{:.1f}% Penjualan"),
+                    'D': ("Produk Kelas D", "{:.1f}% Penjualan"), # Kelas D di benchmark masih terjual
+                    'E': ("Produk Kelas E", "Tidak Terjual")
+                }
+
             if not result_display_dash.empty:
-                abc_summary = result_display_dash.groupby('Kategori ABC')['Metrik_Penjualan'].agg(['count', 'sum'])
+                # Grup berdasarkan kolom yang dipilih
+                abc_summary = result_display_dash.groupby(kategori_col)['Metrik_Penjualan'].agg(['count', 'sum'])
+                
+                # Pastikan semua label ada untuk konsistensi urutan
+                for label in kategori_labels:
+                    if label not in abc_summary.index:
+                        abc_summary.loc[label] = [0, 0]
+                abc_summary = abc_summary.reindex(kategori_labels).fillna(0)
+                
                 total_sales_sum = abc_summary['sum'].sum()
                 if total_sales_sum > 0:
                     abc_summary['sum_perc'] = (abc_summary['sum'] / total_sales_sum) * 100
                 else:
                     abc_summary['sum_perc'] = 0
+                    
                 st.markdown("---")
-                col1, col2, col3, col4 = st.columns(4)
-                if 'A' in abc_summary.index:
-                    col1.metric("Produk Kelas A", f"{abc_summary.loc['A', 'count']} SKU", f"{abc_summary.loc['A', 'sum_perc']:.1f}% Penjualan")
-                if 'B' in abc_summary.index:
-                    col2.metric("Produk Kelas B", f"{abc_summary.loc['B', 'count']} SKU", f"{abc_summary.loc['B', 'sum_perc']:.1f}% Penjualan")
-                if 'C' in abc_summary.index:
-                    col3.metric("Produk Kelas C", f"{abc_summary.loc['C', 'count']} SKU", f"{abc_summary.loc['C', 'sum_perc']:.1f}% Penjualan")
-                if 'D' in abc_summary.index:
-                    col4.metric("Produk Kelas D", f"{abc_summary.loc['D', 'count']} SKU", "Tidak Terjual")
+                
+                # [MODIFIKASI] Kolom Metrik Dinamis
+                cols = st.columns(len(kategori_labels))
+                for i, label in enumerate(kategori_labels):
+                    title, delta_template = metric_labels[label]
+                    count = abc_summary.loc[label, 'count']
+                    
+                    if label == 'D' and metode_dashboard == "Metode Persentase (A, B, C, D)":
+                        delta_text = "Tidak Terjual"
+                    elif label == 'E':
+                        delta_text = "Tidak Terjual"
+                    else:
+                        delta_text = delta_template.format(abc_summary.loc[label, 'sum_perc'])
+                    
+                    cols[i].metric(title, f"{count} SKU", delta_text)
+                        
                 st.markdown("---")
+                
+                # [MODIFIKASI] Grafik
                 col_chart1, col_chart2 = st.columns(2)
                 with col_chart1:
-                    st.subheader("Komposisi Produk per Kelas ABC")
-                    fig1, ax1 = plt.subplots()
-                    ax1.pie(abc_summary['count'], labels=abc_summary.index, autopct='%1.1f%%', startangle=90, colors=['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da'])
-                    ax1.axis('equal')
-                    st.pyplot(fig1)
+                    st.subheader("Komposisi Produk per Kelas")
+                    # Filter data yang count-nya > 0 agar tidak muncul di pie chart
+                    data_pie = abc_summary[abc_summary['count'] > 0]
+                    if not data_pie.empty:
+                        fig1, ax1 = plt.subplots()
+                        ax1.pie(data_pie['count'], labels=data_pie.index, autopct='%1.1f%%', startangle=90, colors=[colors[kategori_labels.index(i)] for i in data_pie.index])
+                        ax1.axis('equal')
+                        st.pyplot(fig1)
+                    else:
+                        st.info("Tidak ada data untuk pie chart.")
+                        
                 with col_chart2:
-                    st.subheader("Kontribusi Penjualan per Kelas ABC")
-                    st.bar_chart(abc_summary[['sum_perc']].rename(columns={'sum_perc': 'Kontribusi Penjualan (%)'}))
+                    st.subheader("Kontribusi Penjualan per Kelas")
+                    # Filter data yang kontribusinya > 0 (kelas E/D-persen akan hilang)
+                    data_bar = abc_summary[abc_summary['sum_perc'] > 0]
+                    if not data_bar.empty:
+                        st.bar_chart(data_bar[['sum_perc']].rename(columns={'sum_perc': 'Kontribusi Penjualan (%)'}))
+                    else:
+                        st.info("Tidak ada kontribusi penjualan untuk ditampilkan.")
+                        
                 st.markdown("---")
+                
+                # Grafik Top 10 (tidak berubah)
                 col_top1, col_top2 = st.columns(2)
                 with col_top1:
                     st.subheader("Top 10 Produk Terlaris")
@@ -726,5 +953,3 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
-
-
