@@ -101,7 +101,8 @@ def create_dashboard_view(df, abc_col, metric_col, metric_name):
 
 # --- FUNGSI UTAMA UNTUK MENJALANKAN ANALISIS (dipanggil oleh tombol) ---
 @st.cache_data
-def run_abc_analysis(so_df_processed, produk_ref, portal_df, _start_date_bln1, _end_date_bln1, _start_date_bln2, _end_date_bln2, _start_date_bln3, _end_date_bln3):
+# [DIUBAH] portal_df dihapus dari argumen
+def run_abc_analysis(so_df_processed, produk_ref, _start_date_bln1, _end_date_bln1, _start_date_bln2, _end_date_bln2, _start_date_bln3, _end_date_bln3):
     """Fungsi ini berisi logika inti analisis ABC Anda."""
     
     so_df = so_df_processed.copy()
@@ -153,48 +154,7 @@ def run_abc_analysis(so_df_processed, produk_ref, portal_df, _start_date_bln1, _
     result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Kuantitas', 'ABC_Rata_Rata')
     result_df = classify_abc_by_metric(result_df, 'Kuantitas_WMA', 'ABC_WMA')
 
-    # 8. Gabungkan dengan Data Portal (Margin)
-    if not result_df.empty and 'Nama Barang' in result_df.columns and st.session_state.revenue_available:
-        portal_cols = [
-            'Nama Accurate', 'Margin Harga Offline (Nilai)', 'Margin Persen Offline (%)',
-            'Margin Harga Website (Nilai)', 'Margin Persen Website (%)', 
-            'Margin Harga Toped OS (Nilai)', 'Margin Persen Toped OS (%)',
-            'Margin Harga Shopee (Nilai)', 'Margin Persen Shopee (%)'
-        ]
-        portal_cols_exist = [col for col in portal_cols if col in portal_df.columns]
-        
-        if 'Nama Accurate' in portal_cols_exist:
-            portal_subset = portal_df[portal_cols_exist].drop_duplicates(subset=['Nama Accurate'])
-            result_df = pd.merge(result_df, portal_subset, left_on='Nama Barang', right_on='Nama Accurate', how='left')
-            
-            conditions = [
-                result_df['Platform'] == 'Offline',
-                result_df['Platform'] == 'Website',
-                result_df['Platform'] == 'Tokopedia',
-                result_df['Platform'] == 'Shopee'
-            ]
-            choices_harga = [
-                result_df.get('Margin Harga Offline (Nilai)', 0),
-                result_df.get('Margin Harga Website (Nilai)', 0),
-                result_df.get('Margin Harga Toped OS (Nilai)', 0),
-                result_df.get('Margin Harga Shopee (Nilai)', 0)
-            ]
-            choices_persen = [
-                result_df.get('Margin Persen Offline (%)', 0),
-                result_df.get('Margin Persen Website (%)', 0),
-                result_df.get('Margin Persen Toped OS (%)', 0),
-                result_df.get('Margin Persen Shopee (%)', 0)
-            ]
-            result_df['Margin Harga'] = np.select(conditions, choices_harga, default=0)
-            result_df['Margin Persen'] = np.select(conditions, choices_persen, default=0)
-        
-        else:
-            st.warning("Kolom 'Nama Accurate' tidak ditemukan di Data Portal. Tidak dapat memetakan margin.")
-            result_df['Margin Harga'] = 0
-            result_df['Margin Persen'] = 0
-    else:
-        result_df['Margin Harga'] = 0
-        result_df['Margin Persen'] = 0
+    # 8. [DIHAPUS] Blok perhitungan margin telah dihapus seluruhnya
 
     return result_df
 
@@ -207,15 +167,17 @@ def render_page():
 
     with tab1_abc:
         # --- Pengecekan Data Awal ---
-        if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty or st.session_state.df_portal.empty:
-            st.warning("⚠️ Harap muat file **Penjualan**, **Produk Referensi**, dan **Data Portal** di halaman **'Input Data'** terlebih dahulu.")
+        # [DIUBAH] Pengecekan df_portal dihapus
+        if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
+            st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
             
         all_so_df = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
-        portal_df = st.session_state.df_portal.copy()
+        # [DIHAPUS] portal_df = st.session_state.df_portal.copy()
         
-        for df in [all_so_df, produk_ref, portal_df]:
+        # [DIUBAH] portal_df dihapus dari loop
+        for df in [all_so_df, produk_ref]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
                 
@@ -227,19 +189,15 @@ def render_page():
             st.error("❌ ANALISIS GAGAL: Kolom 'Kuantitas' tidak ditemukan.")
             st.stop()
         
+        # [DIUBAH] Blok ini disederhanakan, karena 'Harga Sat' tidak lagi wajib
+        # Kita hanya perlu memastikan Kuantitas itu numerik
+        so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
+        so_df.fillna({'Kuantitas': 0}, inplace=True)
+        st.session_state.revenue_available = False # Setel ke False
+        
         if 'Harga Sat' in so_df.columns:
-            st.info("✅ Kolom 'Harga Sat' ditemukan. Data margin (jika ada) akan ditampilkan.")
-            so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
-            so_df['Harga Sat'] = pd.to_numeric(so_df['Harga Sat'], errors='coerce')
-            so_df.fillna({'Kuantitas': 0, 'Harga Sat': 0}, inplace=True)
-            so_df['Revenue'] = so_df['Kuantitas'] * so_df['Harga Sat']
-            st.session_state.revenue_available = True
-        else:
-            st.warning("⚠️ Kolom 'Harga Sat' tidak ditemukan. Data margin tidak akan ditampilkan.")
-            so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
-            so_df.fillna({'Kuantitas': 0}, inplace=True)
-            st.session_state.revenue_available = False
-
+            st.info("Info: Kolom 'Harga Sat' terdeteksi, namun tidak digunakan dalam analisis ABC ini.")
+        
         # --- Preprocessing Data ---
         so_df['Nama Dept'] = so_df.apply(utils.map_nama_dept, axis=1)
         so_df['City'] = so_df['Nama Dept'].apply(utils.map_city)
@@ -275,8 +233,9 @@ def render_page():
             
         if st.button("Jalankan Analisa ABC (Metode Baru)"):
             with st.spinner("Melakukan perhitungan analisis ABC berbasis Kuantitas..."):
+                # [DIUBAH] portal_df dihapus dari panggilan fungsi
                 result_df = run_abc_analysis(
-                    so_df, produk_ref, portal_df,
+                    so_df, produk_ref,
                     start_date_bln1, end_date_bln1,
                     start_date_bln2, end_date_bln2,
                     start_date_bln3, end_date_bln3
@@ -304,32 +263,34 @@ def render_page():
             st.header("Hasil Analisis ABC per Kota")
             
             number_format = '{:,.0f}'
-            percent_format = '{:.1%}'
+            # [DIHAPUS] percent_format = '{:.1%}'
             
             for city in sorted(result_display['City'].unique()):
                 with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
                     city_df = result_display[result_display['City'] == city]
                     city_df_sorted = city_df.sort_values(by=['Total_Kuantitas', 'Platform'], ascending=[False, True])
                         
+                    # [DIUBAH] Kolom margin dihapus
                     display_cols_order = [
                         'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', 'Platform', 
                         'Kuantitas_Bulan_1', 'Kuantitas_Bulan_2', 'Kuantitas_Bulan_3',
                         'Total_Kuantitas', 'Rata_Rata_Kuantitas', 'Kuantitas_WMA',
-                        'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA',
-                        'Margin Harga', 'Margin Persen'
+                        'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'
+                        # 'Margin Harga', 'Margin Persen' <-- DIHAPUS
                     ]
                     display_cols_order = [col for col in display_cols_order if col in city_df_sorted.columns]
                     df_display = city_df_sorted[display_cols_order]
                     
+                    # [DIUBAH] Format margin dihapus
                     styler_obj = df_display.style.format({
                         'Kuantitas_Bulan_1': number_format,
                         'Kuantitas_Bulan_2': number_format,
                         'Kuantitas_Bulan_3': number_format,
                         'Total_Kuantitas': number_format,
                         'Rata_Rata_Kuantitas': number_format,
-                        'Kuantitas_WMA': number_format, 
-                        'Margin Harga': number_format,
-                        'Margin Persen': percent_format
+                        'Kuantitas_WMA': number_format
+                        # 'Margin Harga': number_format, <-- DIHAPUS
+                        # 'Margin Persen': percent_format <-- DIHAPUS
                     }).map(highlight_kategori_abc, subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'])
                     
                     st.markdown(styler_obj.to_html(), unsafe_allow_html=True)
