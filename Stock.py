@@ -673,6 +673,32 @@ elif page == "Hasil Analisa ABC":
         st.header("Filter Rentang Waktu Analisis ABC")
         st.info("Analisis akan didasarkan pada data penjualan 90 hari *sebelum* **Tanggal Akhir** yang dipilih untuk menghitung AVG Mean dan WMA.")
         
+        # --- [BARU] Menambahkan Notes Penjelasan Rentang Waktu ---
+        notes_text = """
+        Perhitungan `Penjualan Bln 1`, `Bln 2`, dan `Bln 3` semuanya didasarkan pada **"Tanggal Akhir"** yang Anda pilih. 
+        Logikanya menghitung mundur 3 blok waktu (masing-masing 30 hari) dari tanggal tersebut.
+
+        **Contoh jika Anda memilih 30 November 2025 sebagai `Tanggal Akhir`:**
+
+        * **Penjualan Bln 1 (30 Hari Terakhir):**
+            * *Penjualan paling baru.*
+            * Rentang: **1 November 2025 s/d 30 November 2025**
+            * *(Logika: dari `Tanggal Akhir - 29 hari` s/d `Tanggal Akhir`)*
+
+        * **Penjualan Bln 2 (30 Hari di Tengah):**
+            * *30 hari sebelum Bln 1.*
+            * Rentang: **2 Oktober 2025 s/d 31 Oktober 2025**
+            * *(Logika: dari `Tanggal Akhir - 59 hari` s/d `Tanggal Akhir - 30 hari`)*
+
+        * **Penjualan Bln 3 (30 Hari Paling Lama):**
+            * *30 hari paling awal dari periode 90 hari.*
+            * Rentang: **2 September 2025 s/d 1 Oktober 2025**
+            * *(Logika: dari `Tanggal Akhir - 89 hari` s/d `Tanggal Akhir - 60 hari`)*
+        """
+        with st.expander("ℹ️ Klik untuk melihat detail perhitungan rentang 90 hari"):
+            st.markdown(notes_text)
+        # --- Akhir Notes ---
+        
         today = datetime.now().date()
         min_date = so_df['Tgl Faktur'].min().date()
         max_date = so_df['Tgl Faktur'].max().date()
@@ -1066,4 +1092,5 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+
 
