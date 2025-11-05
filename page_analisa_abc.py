@@ -31,15 +31,8 @@ def classify_abc_by_metric(df_input, metric_col_name, output_col_name):
     df.drop(columns=[max_metric_col], inplace=True)
     return df
 
-def highlight_kategori_abc(val):
-    warna = {
-        'A': 'background-color: #cce5ff',  
-        'B': 'background-color: #d4edda',  
-        'C': 'background-color: #fff3cd',  
-        'D': 'background-color: #f8d7da',
-        'E': 'background-color: #e2e3e5'
-    }
-    return warna.get(val, '')
+# def highlight_kategori_abc(val): <-- Dihapus karena st.dataframe tidak menggunakannya
+#     ...
 
 def create_dashboard_view(df, abc_col, metric_col, metric_name):
     """
@@ -101,7 +94,7 @@ def create_dashboard_view(df, abc_col, metric_col, metric_name):
 
 # --- FUNGSI UTAMA UNTUK MENJALANKAN ANALISIS (dipanggil oleh tombol) ---
 @st.cache_data
-# [DIUBAH] portal_df dihapus dari argumen
+# portal_df dihapus dari argumen
 def run_abc_analysis(so_df_processed, produk_ref, _start_date_bln1, _end_date_bln1, _start_date_bln2, _end_date_bln2, _start_date_bln3, _end_date_bln3):
     """Fungsi ini berisi logika inti analisis ABC Anda."""
     
@@ -154,8 +147,8 @@ def run_abc_analysis(so_df_processed, produk_ref, _start_date_bln1, _end_date_bl
     result_df = classify_abc_by_metric(result_df, 'Rata_Rata_Kuantitas', 'ABC_Rata_Rata')
     result_df = classify_abc_by_metric(result_df, 'Kuantitas_WMA', 'ABC_WMA')
 
-    # 8. [DIHAPUS] Blok perhitungan margin telah dihapus seluruhnya
-
+    # 8. Blok perhitungan margin telah dihapus
+    
     return result_df
 
 
@@ -167,16 +160,16 @@ def render_page():
 
     with tab1_abc:
         # --- Pengecekan Data Awal ---
-        # [DIUBAH] Pengecekan df_portal dihapus
+        # Pengecekan df_portal dihapus
         if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
             st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
             
         all_so_df = st.session_state.df_penjualan.copy()
         produk_ref = st.session_state.produk_ref.copy()
-        # [DIHAPUS] portal_df = st.session_state.df_portal.copy()
+        # portal_df dihapus
         
-        # [DIUBAH] portal_df dihapus dari loop
+        # portal_df dihapus dari loop
         for df in [all_so_df, produk_ref]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
@@ -189,8 +182,7 @@ def render_page():
             st.error("❌ ANALISIS GAGAL: Kolom 'Kuantitas' tidak ditemukan.")
             st.stop()
         
-        # [DIUBAH] Blok ini disederhanakan, karena 'Harga Sat' tidak lagi wajib
-        # Kita hanya perlu memastikan Kuantitas itu numerik
+        # Blok ini disederhanakan
         so_df['Kuantitas'] = pd.to_numeric(so_df['Kuantitas'], errors='coerce')
         so_df.fillna({'Kuantitas': 0}, inplace=True)
         st.session_state.revenue_available = False # Setel ke False
@@ -233,7 +225,7 @@ def render_page():
             
         if st.button("Jalankan Analisa ABC (Metode Baru)"):
             with st.spinner("Melakukan perhitungan analisis ABC berbasis Kuantitas..."):
-                # [DIUBAH] portal_df dihapus dari panggilan fungsi
+                # portal_df dihapus dari panggilan fungsi
                 result_df = run_abc_analysis(
                     so_df, produk_ref,
                     start_date_bln1, end_date_bln1,
@@ -262,38 +254,40 @@ def render_page():
                     
             st.header("Hasil Analisis ABC per Kota")
             
-            number_format = '{:,.0f}'
-            # [DIHAPUS] percent_format = '{:.1%}'
+            # number_format = '{:,.0f}' <-- Dihapus, akan diatur di st.dataframe
             
             for city in sorted(result_display['City'].unique()):
                 with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
                     city_df = result_display[result_display['City'] == city]
                     city_df_sorted = city_df.sort_values(by=['Total_Kuantitas', 'Platform'], ascending=[False, True])
                         
-                    # [DIUBAH] Kolom margin dihapus
+                    # Kolom margin dihapus
                     display_cols_order = [
                         'No. Barang', 'Nama Barang', 'BRAND Barang', 'Kategori Barang', 'Platform', 
                         'Kuantitas_Bulan_1', 'Kuantitas_Bulan_2', 'Kuantitas_Bulan_3',
                         'Total_Kuantitas', 'Rata_Rata_Kuantitas', 'Kuantitas_WMA',
                         'Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'
-                        # 'Margin Harga', 'Margin Persen' <-- DIHAPUS
                     ]
                     display_cols_order = [col for col in display_cols_order if col in city_df_sorted.columns]
                     df_display = city_df_sorted[display_cols_order]
                     
-                    # [DIUBAH] Format margin dihapus
-                    styler_obj = df_display.style.format({
-                        'Kuantitas_Bulan_1': number_format,
-                        'Kuantitas_Bulan_2': number_format,
-                        'Kuantitas_Bulan_3': number_format,
-                        'Total_Kuantitas': number_format,
-                        'Rata_Rata_Kuantitas': number_format,
-                        'Kuantitas_WMA': number_format
-                        # 'Margin Harga': number_format, <-- DIHAPUS
-                        # 'Margin Persen': percent_format <-- DIHAPUS
-                    }).map(highlight_kategori_abc, subset=['Kategori ABC', 'ABC_Rata_Rata', 'ABC_WMA'])
-                    
-                    st.markdown(styler_obj.to_html(), unsafe_allow_html=True)
+                    # --- [INI PERUBAHAN UTAMA UNTUK FIX CRASH] ---
+                    # Mengganti st.markdown(styler_obj.to_html()) dengan st.dataframe()
+                    st.dataframe(
+                        df_display,
+                        use_container_width=True,
+                        column_config={
+                            # Format angka agar mudah dibaca
+                            "Kuantitas_Bulan_1": st.column_config.NumberColumn(format="%d"),
+                            "Kuantitas_Bulan_2": st.column_config.NumberColumn(format="%d"),
+                            "Kuantitas_Bulan_3": st.column_config.NumberColumn(format="%d"),
+                            "Total_Kuantitas": st.column_config.NumberColumn(format="%d"),
+                            "Rata_Rata_Kuantitas": st.column_config.NumberColumn(format="%.2f"),
+                            "Kuantitas_WMA": st.column_config.NumberColumn(format="%.2f"),
+                        },
+                        hide_index=True # Opsional, agar lebih rapi
+                    )
+                    # --- [AKHIR PERUBAHAN] ---
 
             # --- Logika Unduh ---
             st.header("💾 Unduh Hasil Analisis ABC")
