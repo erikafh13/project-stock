@@ -745,33 +745,44 @@ elif page == "Hasil Analisa ABC":
                 # 4. Benchmark - WMA
                 result_bench_wma = classify_abc_benchmark(grouped.copy(), metric_col='AVG WMA')
                 
-                # --- [BARU] Gabungkan Semua Hasil ---
-                key_cols = [
-                    'City', 'No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang', 
+                # --- [PERBAIKAN] Gabungkan Semua Hasil ---
+                
+                # Tentukan kunci merge utama
+                merge_keys = ['City', 'No. Barang']
+                
+                # Tentukan kolom data yang akan diduplikasi jika tidak dihapus
+                data_cols_to_drop = [
+                    'BRAND Barang', 'Kategori Barang', 'Nama Barang', 
                     'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA'
                 ]
-                
-                # Gabungkan hasil 1 & 2
+
+                # Mulai dengan hasil pertama (lengkap)
+                result_final = result_persen_mean.copy()
+
+                # Gabungkan hasil 2 (hanya kolom unik + kunci merge)
+                cols_to_keep_2 = merge_keys + [col for col in result_persen_wma.columns if 'Persen - WMA' in col]
                 result_final = pd.merge(
-                    result_persen_mean,
-                    result_persen_wma.drop(columns=key_cols, errors='ignore'),
-                    on=['City', 'No. Barang'], # Kunci unik
+                    result_final,
+                    result_persen_wma[cols_to_keep_2],
+                    on=merge_keys,
                     how='left'
                 )
                 
-                # Gabungkan hasil 3
+                # Gabungkan hasil 3 (hanya kolom unik + kunci merge)
+                cols_to_keep_3 = merge_keys + [col for col in result_bench_mean.columns if 'Benchmark - Mean' in col or 'Max_Kategori_Kota (Mean)' in col]
                 result_final = pd.merge(
                     result_final,
-                    result_bench_mean[key_cols + [col for col in result_bench_mean.columns if 'Benchmark' in col or 'Max_Kategori' in col]],
-                    on=key_cols,
+                    result_bench_mean[cols_to_keep_3],
+                    on=merge_keys,
                     how='left'
                 )
                 
-                # Gabungkan hasil 4
+                # Gabungkan hasil 4 (hanya kolom unik + kunci merge)
+                cols_to_keep_4 = merge_keys + [col for col in result_bench_wma.columns if 'Benchmark - WMA' in col or 'Max_Kategori_Kota (WMA)' in col]
                 result_final = pd.merge(
                     result_final,
-                    result_bench_wma[key_cols + [col for col in result_bench_wma.columns if 'Benchmark' in col or 'Max_Kategori' in col]],
-                    on=key_cols,
+                    result_bench_wma[cols_to_keep_4],
+                    on=merge_keys,
                     how='left'
                 )
 
@@ -890,10 +901,22 @@ elif page == "Hasil Analisa ABC":
                     'Kategori ABC (Benchmark - WMA)'
                 ]
                 
-                total_final = pd.merge(all_persen_mean[keys + all_cols_to_merge[0:2]], 
-                                       all_persen_wma[keys + all_cols_to_merge[2:4]], on=keys)
-                total_final = pd.merge(total_final, all_bench_mean[keys + [all_cols_to_merge[4]]], on=keys)
-                total_final = pd.merge(total_final, all_bench_wma[keys + [all_cols_to_merge[5]]], on=keys)
+                # [PERBAIKAN] Pastikan kolom kunci (keys) ada untuk setiap merge
+                total_final = pd.merge(
+                    all_persen_mean[keys + [col for col in all_persen_mean.columns if 'Persen - Mean' in col]], 
+                    all_persen_wma[keys + [col for col in all_persen_wma.columns if 'Persen - WMA' in col]], 
+                    on=keys
+                )
+                total_final = pd.merge(
+                    total_final, 
+                    all_bench_mean[keys + [col for col in all_bench_mean.columns if 'Benchmark - Mean' in col or 'Max_Kategori_Kota (Mean)' in col]], 
+                    on=keys
+                )
+                total_final = pd.merge(
+                    total_final, 
+                    all_bench_wma[keys + [col for col in all_bench_wma.columns if 'Benchmark - WMA' in col or 'Max_Kategori_Kota (WMA)' in col]], 
+                    on=keys
+                )
 
                 # Rename kolom 'All'
                 total_final.columns = [f"All_{col}" if col not in keys else col for col in total_final.columns]
@@ -1043,3 +1066,4 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+
