@@ -143,7 +143,7 @@ def convert_df_to_excel(df):
 
 
 # =====================================================================================
-#                               ROUTING HALAMAN
+#                                       ROUTING HALAMAN
 # =====================================================================================
 
 if page == "Input Data":
@@ -573,10 +573,10 @@ elif page == "Hasil Analisa Stock":
                     # [MODIFIKASI] Terapkan 3 highlight + format dinamis
                     st.dataframe(
                         city_df.style.format(format_dict_kota, na_rep='-')
-                                      .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
-                                      .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)'])
-                                      .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
-                                      .set_table_styles([header_style]), 
+                                     .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
+                                     .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)'])
+                                     .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
+                                     .set_table_styles([header_style]), 
                         use_container_width=True
                     )
             
@@ -634,7 +634,9 @@ elif page == "Hasil Analisa Stock":
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
                     
-                    # [PERBAIKAN] Blok kode yang diperbarui untuk pemformatan
+                    # =================================================================
+                    # [PERBAIKAN] Mengganti Styler dengan column_config
+                    # =================================================================
                     
                     # [REVISI] Buat DataFrame yang akan ditampilkan terlebih dahulu
                     df_to_style = pivot_result[final_display_cols].copy() # Gunakan .copy()
@@ -651,29 +653,25 @@ elif page == "Hasil Analisa Stock":
                                 object_cols_to_format.append(col)
                                 
                     # 2. Isi NaN di DataFrame SEBELUM styling
-                    # Isi NaN numerik dengan 0 (agar format {:.0f} tidak gagal)
+                    # Isi NaN numerik dengan 0
                     df_to_style[numeric_cols_to_format] = df_to_style[numeric_cols_to_format].fillna(0)
                     # Isi NaN string/object with '-'
                     df_to_style[object_cols_to_format] = df_to_style[object_cols_to_format].fillna('-')
                     
-                    # 3. Buat format dictionary
-                    format_dict_pivot = {}
+                    # 3. [REVISI] Buat column_config untuk st.dataframe
+                    column_config_stock = {}
                     for col in numeric_cols_to_format:
-                        format_dict_pivot[col] = '{:.0f}'
-                        
-                    # (Opsional) Tentukan format string untuk object cols agar konsisten
-                    for col in object_cols_to_format:
-                        format_dict_pivot[col] = '{}' # Format as-is (string)
-                        
-                    # 4. Buat Styler dan terapkan format
-                    # Kita tidak perlu na_rep='-' lagi karena NaN sudah di-handle
-                    styler = df_to_style.style.format(format_dict_pivot) 
-                    
-                    # Tampilkan styler yang sudah diformat
+                        column_config_stock[col] = st.column_config.NumberColumn(format="%.0f")
+
+                    # Tampilkan DataFrame (bukan Styler) dengan format baru
                     st.dataframe(
-                        styler,
+                        df_to_style,  # <-- Gunakan DataFrame-nya, bukan Styler
+                        column_config=column_config_stock, # <-- Gunakan column_config
                         use_container_width=True
                     )
+                    # =================================================================
+                    # [AKHIR PERBAIKAN]
+                    # =================================================================
 
 
             st.header("💾 Unduh Hasil Analisis Stock")
@@ -726,7 +724,7 @@ elif page == "Hasil Analisa Stock":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Sesuaikan filter Anda.")
 
 # =====================================================================================
-#                       HALAMAN ANALISA ABC (MODIFIKASI BESAR)
+#                        HALAMAN ANALISA ABC (MODIFIKASI BESAR)
 # =====================================================================================
 
 elif page == "Hasil Analisa ABC":
@@ -1135,7 +1133,9 @@ elif page == "Hasil Analisa ABC":
                 pivot_abc_final = pd.merge(pivot_abc, total_final, on=keys, how='left')
                 
                 
-                # [PERBAIKAN] Blok kode yang diperbarui untuk pemformatan
+                # =================================================================
+                # [PERBAIKAN] Mengganti Styler dengan column_config
+                # =================================================================
                 
                 # [REVISI] Buat DataFrame yang akan ditampilkan terlebih dahulu
                 df_to_style_abc = pivot_abc_final.copy() # .copy() untuk keamanan
@@ -1159,23 +1159,22 @@ elif page == "Hasil Analisa ABC":
                 df_to_style_abc[perc_cols_abc] = df_to_style_abc[perc_cols_abc].fillna(0) # Persen NaN jadi 0
                 df_to_style_abc[object_cols_abc] = df_to_style_abc[object_cols_abc].fillna('-')
                 
-                # 3. Buat format dictionary
-                format_dict_abc_pivot = {}
+                # 3. [REVISI] Buat column_config untuk st.dataframe
+                column_config_abc = {}
                 for col in numeric_cols_abc:
-                    format_dict_abc_pivot[col] = '{:.0f}'
+                    column_config_abc[col] = st.column_config.NumberColumn(format="%.0f")
                 for col in perc_cols_abc:
-                    format_dict_abc_pivot[col] = '{:.2f}%' # Tampilkan 0 sebagai 0.00%
-                for col in object_cols_abc:
-                    format_dict_abc_pivot[col] = '{}'
-                    
-                # 4. Buat Styler dan terapkan format
-                styler_abc = df_to_style_abc.style.format(format_dict_abc_pivot)
-                
-                # Tampilkan styler yang sudah diformat
+                    column_config_abc[col] = st.column_config.NumberColumn(format="%.2f%%")
+
+                # Tampilkan DataFrame (bukan Styler) dengan format baru
                 st.dataframe(
-                    styler_abc,
+                    df_to_style_abc,  # <-- Gunakan DataFrame-nya, bukan Styler
+                    column_config=column_config_abc, # <-- Gunakan column_config
                     use_container_width=True
                 )
+                # =================================================================
+                # [AKHIR PERBAIKAN]
+                # =================================================================
                 
             # Download
             st.header("💾 Unduh Hasil Analisis ABC")
