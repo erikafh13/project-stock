@@ -272,7 +272,7 @@ elif page == "Hasil Analisa Stock":
             terjual['% kontribusi'] = 100 * terjual['Total Kuantitas'] / total_kuantitas
             terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
             # [MODIFIKASI] A=70, B=85, C=95, D=100
-            terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 85 else ('C' if x <= 95 else 'D')))
+            terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 50 else ('B' if x <= 75 else ('C' if x <= 90 else 'D')))
         else:
             terjual['% kontribusi'] = 0
             terjual['% Kumulatif'] = 0
@@ -362,7 +362,7 @@ elif page == "Hasil Analisa Stock":
     # [MODIFIKASI] Logika Max Stock A-E
     def calculate_max_stock(avg_wma, category):
         # A=2, B=1, C=1, D=1 (low sales), E=0 (no sales)
-        multiplier = {'A': 2, 'B': 1, 'C': 1, 'D': 1, 'E': 0} 
+        multiplier = {'A': 2, 'B': 1.5, 'C': 1, 'D': 1, 'E': 0} 
         return avg_wma * multiplier.get(category, 0)
 
     # [DIHAPUS] calculate_rop
@@ -1564,4 +1564,5 @@ elif page == "Hasil Analisis Margin":
     
     elif 'df_portal' in st.session_state and not st.session_state.df_portal.empty:
         st.info("Data portal telah dimuat. Klik tombol 'Muat & Analisa Data Margin' di atas untuk melihat hasilnya.")
+
 
