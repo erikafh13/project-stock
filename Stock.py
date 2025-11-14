@@ -12,7 +12,7 @@ import os
 import re
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import locale # Ditambahkan untuk nama bulan
+# import locale # Dihapus, tidak perlu lagi
 
 # Konfigurasi awal halaman Streamlit
 st.set_page_config(layout="wide", page_title="Analisis Stock & ABC")
@@ -389,14 +389,13 @@ elif page == "Hasil Analisa Stock":
     if st.button("Jalankan Analisa Stock"):
         with st.spinner("Melakukan perhitungan analisis stok..."):
             
-            # [DITAMBAHKAN] Set locale Indonesia untuk nama bulan
-            try:
-                locale.setlocale(locale.LC_TIME, 'id_ID.UTF-8')
-            except locale.Error:
-                try:
-                    locale.setlocale(locale.LC_TIME, 'Indonesian_Indonesia.1252')
-                except locale.Error:
-                    st.warning("Locale 'id_ID.UTF-8' tidak ditemukan. Nama bulan mungkin dalam Bahasa Inggris.")
+            # [MODIFIKASI] Kamus bulan manual (tidak perlu locale)
+            bulan_indonesia = {
+                1: 'Januari', 2: 'Februari', 3: 'Maret', 4: 'April', 5: 'Mei', 6: 'Juni',
+                7: 'Juli', 8: 'Agustus', 9: 'September', 10: 'Oktober', 11: 'November', 12: 'Desember'
+            }
+            
+            # [DIHAPUS] locale.setlocale() sudah tidak diperlukan lagi
             
             end_date_dt = pd.to_datetime(end_date)
             wma_start_date = end_date_dt - pd.DateOffset(days=89)
@@ -437,10 +436,11 @@ elif page == "Hasil Analisa Stock":
                 
                 full_data.fillna(0, inplace=True)
 
-                # [MODIFIKASI] Rename kolom bulan
+                # [MODIFIKASI] Rename kolom bulan menggunakan kamus
                 bulan_columns_period = [col for col in full_data.columns if isinstance(col, pd.Period)]
                 bulan_columns_period.sort() # Urutkan
-                rename_map = {col: col.strftime('%B %Y') for col in bulan_columns_period}
+                # Menggunakan kamus 'bulan_indonesia'
+                rename_map = {col: f"{bulan_indonesia[col.month]} {col.year}" for col in bulan_columns_period}
                 full_data.rename(columns=rename_map, inplace=True)
                 bulan_columns_renamed = [rename_map[col] for col in bulan_columns_period] # Simpan nama baru
                 
@@ -545,19 +545,6 @@ elif page == "Hasil Analisa Stock":
         with tab1:
             header_style = {'selector': 'th', 'props': [('background-color', '#0068c9'), ('color', 'white'), ('text-align', 'center')]}
             st.header("Hasil Analisis Stok per Kota")
-            
-            # [REVISI] Buat format dict untuk tabel kota
-            format_dict_kota = {
-                'AVG WMA': '{:.0f}', 'AVG Mean': '{:.0f}', 
-                'Penjualan Bln 1': '{:.0f}', 'Penjualan Bln 2': '{:.0f}', 'Penjualan Bln 3': '{:.0f}',
-                'Min Stock': '{:.0f}', 'Max Stock': '{:.0f}', 'Stock Cabang': '{:.0f}', 
-                'Add Stock': '{:.0f}', 'Suggested PO': '{:.0f}',
-                'Stock Surabaya': '{:.0f}', 'Stock Total': '{:.0f}', 'Suggest PO All': '{:.0f}',
-                'Max_Kategori_Kota (WMA)': '{:.0f}'
-            }
-            # Tambahkan kolom bulan
-            for col in bulan_cols:
-                format_dict_kota[col] = '{:.0f}'
 
             for city in sorted(final_result_display['City'].unique()):
                 with st.expander(f"📍 Lihat Hasil Stok untuk Kota: {city}"):
@@ -571,7 +558,19 @@ elif page == "Hasil Analisa Stock":
                         st.write("Tidak ada data yang cocok dengan filter yang dipilih.")
                         continue
                     
-                    # [MODIFIKASI] Terapkan 3 highlight + format
+                    # [REVISI] Buat format dict untuk tabel kota secara dinamis
+                    format_dict_kota = {}
+                    keys_to_skip = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
+                    for col_name in city_df.columns:
+                        if pd.api.types.is_numeric_dtype(city_df[col_name]):
+                            # Jangan format kolom Kunci
+                            if col_name in keys_to_skip:
+                                continue
+                            
+                            # Format sisanya sebagai angka bulat
+                            format_dict_kota[col_name] = '{:.0f}'
+
+                    # [MODIFIKASI] Terapkan 3 highlight + format dinamis
                     st.dataframe(
                         city_df.style.format(format_dict_kota, na_rep='-')
                                       .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
@@ -596,7 +595,10 @@ elif page == "Hasil Analisa Stock":
                          'Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
-                    pivot_result = final_result_display.pivot_table(index=keys, columns='City', values=pivot_cols, aggfunc='first')
+                    # Pastikan hanya kolom yang ada di df yang dipivot
+                    pivot_cols_existing = [col for col in pivot_cols if col in final_result_display.columns]
+                    
+                    pivot_result = final_result_display.pivot_table(index=keys, columns='City', values=pivot_cols_existing, aggfunc='first')
                     pivot_result.columns = [f"{level1}_{level0}" for level0, level1 in pivot_result.columns]
                     pivot_result.reset_index(inplace=True)
                     cities = sorted(final_result_display['City'].unique())
@@ -631,26 +633,20 @@ elif page == "Hasil Analisa Stock":
                     final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
-                    # [REVISI] Buat format dictionary untuk pivot gabungan
+                    # [REVISI] Buat format dictionary untuk pivot gabungan secara dinamis
                     format_dict_pivot = {}
                     
-                    # Kolom metrik per kota
-                    numeric_metrics_pivot = (
-                        ['AVG WMA', 'AVG Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] + 
-                        bulan_cols + 
-                        ['Max_Kategori_Kota (WMA)', 'Min Stock', 'Max Stock', 'Stock Cabang', 'Add Stock', 'Suggested PO']
-                    )
-                    for city in cities:
-                        for metric in numeric_metrics_pivot:
-                            col_name = f"{city}_{metric}"
-                            if col_name in pivot_result.columns:
-                                format_dict_pivot[col_name] = '{:.0f}'
-                                
-                    # Kolom summary
-                    summary_numeric_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO']
-                    for col in summary_numeric_cols:
-                        if col in pivot_result.columns:
-                            format_dict_pivot[col] = '{:.0f}'
+                    # Loop HANYA kolom yang akan ditampilkan
+                    for col_name in final_display_cols:
+                        # Cek tipe data langsung dari DataFrame
+                        if col_name in pivot_result.columns and pd.api.types.is_numeric_dtype(pivot_result[col_name]):
+                            
+                            # Jangan format kolom Kunci (No. Barang)
+                            if col_name in keys:
+                                 continue
+                            
+                            # Format semua kolom numerik lainnya sebagai angka bulat
+                            format_dict_pivot[col_name] = '{:.0f}'
                     
                     st.dataframe(
                         pivot_result[final_display_cols].style.format(format_dict_pivot, na_rep='-'), 
@@ -992,6 +988,8 @@ elif page == "Hasil Analisa ABC":
             
             # [MODIFIKASI] Tabel per Kota
             st.header("Hasil Analisis ABC per Kota")
+            keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang'] # Definisikan keys di sini
+            
             for city in sorted(result_display['City'].unique()):
                 with st.expander(f"🏙️ Lihat Hasil ABC untuk Kota: {city}"):
                     city_df = result_display[result_display['City'] == city]
@@ -1010,15 +1008,22 @@ elif page == "Hasil Analisa ABC":
                     display_cols = [col for col in display_cols_order if col in city_df.columns]
                     df_city_display = city_df[display_cols]
                     
-                    # [MODIFIKASI] Terapkan 4 highlight
+                    # [REVISI] Buat format dict dinamis untuk tabel kota ABC
+                    format_dict_abc_kota = {}
+                    for col_name in df_city_display.columns:
+                         if pd.api.types.is_numeric_dtype(df_city_display[col_name]):
+                            if col_name in keys:
+                                continue
+                            
+                            if "% Kontribusi" in col_name:
+                                format_dict_abc_kota[col_name] = '{:.2f}%'
+                            else:
+                                format_dict_abc_kota[col_name] = '{:.0f}'
+
+                    # [MODIFIKASI] Terapkan 4 highlight + format dinamis
                     st.dataframe(
                         df_city_display.style
-                            .format({
-                                'Penjualan Bln 1': '{:.0f}', 'Penjualan Bln 2': '{:.0f}', 'Penjualan Bln 3': '{:.0f}',
-                                'AVG Mean': '{:.0f}', 'AVG WMA': '{:.0f}',
-                                '% Kontribusi (Persen - Mean)': '{:.2f}%', '% Kontribusi (Persen - WMA)': '{:.2f}%',
-                                'Max_Kategori_Kota (Mean)': '{:.0f}', 'Max_Kategori_Kota (WMA)': '{:.0f}'
-                            })
+                            .format(format_dict_abc_kota, na_rep='-')
                             .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - Mean)'])
                             .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
                             .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - Mean)'])
@@ -1029,22 +1034,23 @@ elif page == "Hasil Analisa ABC":
             # [MODIFIKASI] Tabel Gabungan
             st.header("📊 Tabel Gabungan Seluruh Kota (ABC)")
             with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
-                keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
+                # keys sudah didefinisikan di atas
                 
                 # [BARU] Tambahkan semua kolom baru ke pivot
                 pivot_values = [
                     'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA',
                     'Kategori ABC (Persen - Mean)', 'Kategori ABC (Persen - WMA)',
-                    'Kategori ABC (Benchmark - Mean)', 'Kategori ABC (Benchmark - WMA)'
+                    'Kategori ABC (Benchmark - Mean)', 'Kategori ABC (Benchmark - WMA)',
+                    'Max_Kategori_Kota (Mean)', 'Max_Kategori_Kota (WMA)' # Tambahkan Max
                 ]
                 
-                # Aggfunc 'first' dipakai di pivot_table krn nilai ABC sudah unik per kota
-                # Aggfunc 'sum' dipakai di groupby untuk menghitung total
-                
+                # Pastikan hanya kolom yang ada di df yang dipivot
+                pivot_values_existing = [col for col in pivot_values if col in result_display.columns]
+
                 pivot_abc = result_display.pivot_table(
                     index=keys, 
                     columns='City', 
-                    values=pivot_values, 
+                    values=pivot_values_existing, 
                     aggfunc='first' # 'first' cocok di sini krn data sudah per City
                 )
                 pivot_abc.columns = [f"{level1}_{level0}" for level0, level1 in pivot_abc.columns]
@@ -1076,14 +1082,6 @@ elif page == "Hasil Analisa ABC":
                 all_bench_mean = classify_abc_benchmark(total_abc.copy(), metric_col='AVG Mean')
                 all_bench_wma = classify_abc_benchmark(total_abc.copy(), metric_col='AVG WMA')
 
-                # Gabungkan hasil 'All'
-                all_cols_to_merge = [
-                    'Kategori ABC (Persen - Mean)', '% Kontribusi (Persen - Mean)',
-                    'Kategori ABC (Persen - WMA)', '% Kontribusi (Persen - WMA)',
-                    'Kategori ABC (Benchmark - Mean)',
-                    'Kategori ABC (Benchmark - WMA)'
-                ]
-                
                 # [PERBAIKAN] Pastikan kolom kunci (keys) ada untuk setiap merge
                 total_final = pd.merge(
                     all_persen_mean[keys + [col for col in all_persen_mean.columns if 'Persen - Mean' in col or 'Penjualan' in col or 'AVG' in col]], 
@@ -1113,32 +1111,27 @@ elif page == "Hasil Analisa ABC":
                 # Gabungkan pivot utama dengan data 'All'
                 pivot_abc_final = pd.merge(pivot_abc, total_final, on=keys, how='left')
                 
-                # [REVISI] Buat format dictionary untuk pivot ABC
-                format_dict_abc = {}
-                abc_cities = sorted(result_display['City'].unique())
+                # [REVISI] Buat format dictionary untuk pivot ABC secara dinamis
+                format_dict_abc_pivot = {}
                 
-                # Kolom metrik per kota
-                numeric_metrics_abc = ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA']
-                for city in abc_cities:
-                    for metric in numeric_metrics_abc:
-                        col_name = f"{city}_{metric}"
-                        if col_name in pivot_abc_final.columns:
-                            format_dict_abc[col_name] = '{:.0f}'
-                
-                # Kolom summary 'All'
-                summary_numeric_abc = ['All_Penjualan Bln 1', 'All_Penjualan Bln 2', 'All_Penjualan Bln 3', 'All_AVG Mean', 'All_AVG WMA', 'All_Max_Kategori_Kota (Mean)', 'All_Max_Kategori_Kota (WMA)']
-                for col in summary_numeric_abc:
-                     if col in pivot_abc_final.columns:
-                            format_dict_abc[col] = '{:.0f}'
-                            
-                # Kolom %
-                summary_perc_abc = ['All_% Kontribusi (Persen - Mean)', 'All_% Kontribusi (Persen - WMA)']
-                for col in summary_perc_abc:
-                     if col in pivot_abc_final.columns:
-                            format_dict_abc[col] = '{:.2f}%'
+                # Loop HANYA kolom yang akan ditampilkan
+                for col_name in pivot_abc_final.columns:
+                    # Cek tipe data langsung dari DataFrame
+                    if col_name in pivot_abc_final.columns and pd.api.types.is_numeric_dtype(pivot_abc_final[col_name]):
+                        
+                        # Jangan format kolom Kunci (No. Barang)
+                        if col_name in keys:
+                             continue
+                        
+                        # Format kolom persentase
+                        if "% Kontribusi" in col_name:
+                             format_dict_abc_pivot[col_name] = '{:.2f}%'
+                        else:
+                             # Format semua kolom numerik lainnya
+                             format_dict_abc_pivot[col_name] = '{:.0f}'
 
                 st.dataframe(
-                    pivot_abc_final.style.format(format_dict_abc, na_rep='-'), 
+                    pivot_abc_final.style.format(format_dict_abc_pivot, na_rep='-'), 
                     use_container_width=True
                 )
                 
