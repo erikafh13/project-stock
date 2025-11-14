@@ -339,7 +339,7 @@ elif page == "Hasil Analisa Stock":
         return f'background-color: {warna.get(val, "")}'
 
     def calculate_min_stock(avg_wma):
-        return avg_wma * (21/30)
+        return avg_wma * (30/30)
 
     # [MODIFIKASI] Logika Status Stock
     def get_status_stock(row):
@@ -370,7 +370,7 @@ elif page == "Hasil Analisa Stock":
     def hitung_po_cabang_baru(stock_surabaya, stock_cabang, stock_total, suggest_po_all, so_cabang, add_stock_cabang):
         try:
             if stock_surabaya < stock_cabang: return 0
-            kebutuhan_21_hari = (so_cabang / 30) * 21
+            kebutuhan_21_hari = (so_cabang / 30) * 30
             kondisi_3_terpenuhi = stock_cabang < kebutuhan_21_hari
             kondisi_2_terpenuhi = stock_total < suggest_po_all
             if kondisi_2_terpenuhi and kondisi_3_terpenuhi:
@@ -1564,3 +1564,4 @@ elif page == "Hasil Analisis Margin":
     
     elif 'df_portal' in st.session_state and not st.session_state.df_portal.empty:
         st.info("Data portal telah dimuat. Klik tombol 'Muat & Analisa Data Margin' di atas untuk melihat hasilnya.")
+
