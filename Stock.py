@@ -1472,6 +1472,8 @@ elif page == "Hasil Analisis Margin":
                     # Jalankan ABC untuk setiap platform
                     for platform_name, metric_col in platforms.items():
                         if metric_col in df_analyzed.columns:
+                            # [PERBAIKAN] Pastikan kolom numerik
+                            df_analyzed[metric_col] = pd.to_numeric(df_analyzed[metric_col], errors='coerce').fillna(0)
                             df_analyzed, new_col = classify_abc_margin(df_analyzed, metric_col, platform_name)
                             new_abc_cols.extend(new_col)
                         else:
@@ -1519,30 +1521,36 @@ elif page == "Hasil Analisis Margin":
         
         for col in df_display.columns:
             if "HPP" in col or "Margin Harga" in col:
+                # [PERBAIKAN] Pastikan kolom numerik sebelum styling
+                df_display[col] = pd.to_numeric(df_display[col], errors='coerce').fillna(0)
                 column_config_margin[col] = st.column_config.NumberColumn(format="%.0f")
             elif "Margin Persen" in col:
+                # [PERBAIKAN] Pastikan kolom numerik sebelum styling
+                df_display[col] = pd.to_numeric(df_display[col], errors='coerce').fillna(0)
                 column_config_margin[col] = st.column_config.NumberColumn(format="%.2f%%")
             elif "Kategori ABC" in col:
                 cols_to_highlight.append(col)
         
-        # Terapkan styling
+        # =================================================================
+        # [PERBAIKAN] Mengganti Styler.format dengan column_config
+        # =================================================================
+        
+        # 1. Buat Styler HANYA untuk highlight
         styler = df_display.style
-        
-        # Terapkan format angka
-        styler = styler.format(
-            formatter={col: "{:.0f}" for col, config in column_config_margin.items() if config.format == "%.0f"},
-            na_rep='-'
-        )
-        styler = styler.format(
-            formatter={col: "{:.2f}%" for col, config in column_config_margin.items() if config.format == "%.2f%%"},
-            na_rep='-'
-        )
-        
-        # Terapkan highlight
         for col_abc in cols_to_highlight:
             styler = styler.apply(lambda x: x.map(highlight_kategori_abc), subset=[col_abc])
             
-        st.dataframe(styler, use_container_width=True)
+        # 2. [DIHAPUS] Blok .format() yang menyebabkan error
+        
+        # 3. Tampilkan Styler (untuk highlight) DAN column_config (untuk format angka)
+        st.dataframe(
+            styler, 
+            column_config=column_config_margin,  # <-- Terapkan column_config di sini
+            use_container_width=True
+        )
+        # =================================================================
+        # [AKHIR PERBAIKAN]
+        # =================================================================
 
         # --- Tombol Download ---
         st.header("3. Unduh Hasil Analisis")
