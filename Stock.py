@@ -633,23 +633,32 @@ elif page == "Hasil Analisa Stock":
                     final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
-                    # [REVISI] Buat format dictionary untuk pivot gabungan secara dinamis
-                    format_dict_pivot = {}
+                    # [PERBAIKAN] Blok kode yang diperbarui untuk pemformatan
                     
-                    # Loop HANYA kolom yang akan ditampilkan
-                    for col_name in final_display_cols:
-                        # Cek tipe data langsung dari DataFrame
-                        if col_name in pivot_result.columns and pd.api.types.is_numeric_dtype(pivot_result[col_name]):
-                            
-                            # Jangan format kolom Kunci (No. Barang)
-                            if col_name in keys:
-                                 continue
-                            
-                            # Format semua kolom numerik lainnya sebagai angka bulat
-                            format_dict_pivot[col_name] = '{:.0f}'
+                    # [REVISI] Buat DataFrame yang akan ditampilkan terlebih dahulu
+                    df_to_style = pivot_result[final_display_cols]
                     
+                    # Buat styler
+                    styler = df_to_style.style
+                    
+                    # Pilih kolom numerik secara otomatis, KECUALI keys
+                    numeric_cols_to_format = []
+                    for col in df_to_style.select_dtypes(include=np.number).columns:
+                        if col not in keys: # keys = ['No. Barang', 'Kategori Barang', ...]
+                            numeric_cols_to_format.append(col)
+                    
+                    # Terapkan format HANYA ke kolom numerik yang valid
+                    if numeric_cols_to_format:
+                        styler = styler.format('{:.0f}', na_rep='-', subset=numeric_cols_to_format)
+                    
+                    # Format sisa kolom (string/object) hanya untuk mengatur na_rep
+                    other_cols = [col for col in df_to_style.columns if col not in numeric_cols_to_format]
+                    if other_cols:
+                         styler = styler.format(na_rep='-', subset=other_cols)
+
+                    # Tampilkan styler yang sudah diformat
                     st.dataframe(
-                        pivot_result[final_display_cols].style.format(format_dict_pivot, na_rep='-'), 
+                        styler,
                         use_container_width=True
                     )
 
@@ -1111,27 +1120,35 @@ elif page == "Hasil Analisa ABC":
                 # Gabungkan pivot utama dengan data 'All'
                 pivot_abc_final = pd.merge(pivot_abc, total_final, on=keys, how='left')
                 
-                # [REVISI] Buat format dictionary untuk pivot ABC secara dinamis
-                format_dict_abc_pivot = {}
-                
-                # Loop HANYA kolom yang akan ditampilkan
-                for col_name in pivot_abc_final.columns:
-                    # Cek tipe data langsung dari DataFrame
-                    if col_name in pivot_abc_final.columns and pd.api.types.is_numeric_dtype(pivot_abc_final[col_name]):
-                        
-                        # Jangan format kolom Kunci (No. Barang)
-                        if col_name in keys:
-                             continue
-                        
-                        # Format kolom persentase
-                        if "% Kontribusi" in col_name:
-                             format_dict_abc_pivot[col_name] = '{:.2f}%'
-                        else:
-                             # Format semua kolom numerik lainnya
-                             format_dict_abc_pivot[col_name] = '{:.0f}'
+                # [PERBAIKAN] Blok kode yang diperbarui untuk pemformatan
 
+                # [REVISI] Buat DataFrame yang akan ditampilkan terlebih dahulu
+                df_to_style_abc = pivot_abc_final.copy() # .copy() untuk keamanan
+                styler_abc = df_to_style_abc.style
+                
+                # 1. Format kolom persentase terlebih dahulu
+                perc_cols = [col for col in df_to_style_abc.columns if "% Kontribusi" in col]
+                if perc_cols:
+                    styler_abc = styler_abc.format('{:.2f}%', na_rep='-', subset=perc_cols)
+                
+                # 2. Format numerik sisanya (non-key, non-percent)
+                numeric_cols_to_format_abc = []
+                for col in df_to_style_abc.select_dtypes(include=np.number).columns:
+                    # Lewati jika itu key ATAU jika sudah diformat sebagai persen
+                    if col not in keys and col not in perc_cols:
+                        numeric_cols_to_format_abc.append(col)
+                
+                if numeric_cols_to_format_abc:
+                    styler_abc = styler_abc.format('{:.0f}', na_rep='-', subset=numeric_cols_to_format_abc)
+                
+                # 3. Format sisanya (string, object, dll) hanya untuk na_rep
+                other_cols = [col for col in df_to_style_abc.columns if col not in perc_cols and col not in numeric_cols_to_format_abc]
+                if other_cols:
+                    styler_abc = styler_abc.format(na_rep='-', subset=other_cols)
+
+                # Tampilkan styler yang sudah diformat
                 st.dataframe(
-                    pivot_abc_final.style.format(format_dict_abc_pivot, na_rep='-'), 
+                    styler_abc,
                     use_container_width=True
                 )
                 
