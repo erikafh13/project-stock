@@ -558,11 +558,27 @@ elif page == "Hasil Analisa Stock":
                         st.write("Tidak ada data yang cocok dengan filter yang dipilih.")
                         continue
                     
+                    # [REVISI] Tentukan urutan kolom sesuai permintaan
+                    keys_base = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
+                    metric_order_kota = (
+                        bulan_cols + 
+                        ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
+                        ['AVG WMA', 'AVG Mean', 'Max_Kategori_Kota (WMA)'] +
+                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
+                        ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
+                    )
+                    
+                    # Gabungkan dan pastikan hanya kolom yang ada di city_df
+                    display_cols_kota = keys_base + [col for col in metric_order_kota if col in city_df.columns]
+                    
+                    # Terapkan urutan kolom
+                    city_df_display = city_df[display_cols_kota]
+                    
                     # [REVISI] Buat format dict untuk tabel kota secara dinamis
                     format_dict_kota = {}
                     keys_to_skip = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
-                    for col_name in city_df.columns:
-                        if pd.api.types.is_numeric_dtype(city_df[col_name]):
+                    for col_name in city_df_display.columns: # Gunakan city_df_display
+                        if pd.api.types.is_numeric_dtype(city_df_display[col_name]):
                             # Jangan format kolom Kunci
                             if col_name in keys_to_skip:
                                 continue
@@ -570,9 +586,9 @@ elif page == "Hasil Analisa Stock":
                             # Format sisanya sebagai angka bulat
                             format_dict_kota[col_name] = '{:.0f}'
 
-                    # [MODIFIKASI] Terapkan 3 highlight + format dinamis
+                    # [MODIFIKASI] Terapkan 3 highlight + format dinamis + urutan kolom
                     st.dataframe(
-                        city_df.style.format(format_dict_kota, na_rep='-')
+                        city_df_display.style.format(format_dict_kota, na_rep='-') # Gunakan city_df_display
                                      .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
                                      .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)'])
                                      .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
@@ -587,12 +603,13 @@ elif page == "Hasil Analisa Stock":
                 else:
                     keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
                     
-                    # [MODIFIKASI] Daftar kolom pivot
+                    # [REVISI] Daftar kolom pivot sesuai urutan
                     pivot_cols = (
-                        ['AVG WMA', 'AVG Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] + 
                         bulan_cols + 
-                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)', 'Max_Kategori_Kota (WMA)',
-                         'Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
+                        ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
+                        ['AVG WMA', 'AVG Mean', 'Max_Kategori_Kota (WMA)'] +
+                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
+                        ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
                     # Pastikan hanya kolom yang ada di df yang dipivot
@@ -603,12 +620,13 @@ elif page == "Hasil Analisa Stock":
                     pivot_result.reset_index(inplace=True)
                     cities = sorted(final_result_display['City'].unique())
                     
-                    # [MODIFIKASI] Urutan metrik
+                    # [REVISI] Urutan metrik sesuai urutan
                     metric_order = (
-                        ['AVG WMA', 'AVG Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] + 
                         bulan_cols + 
-                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)', 'Max_Kategori_Kota (WMA)',
-                         'Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
+                        ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
+                        ['AVG WMA', 'AVG Mean', 'Max_Kategori_Kota (WMA)'] +
+                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
+                        ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
                     ordered_city_cols = [f"{city}_{metric}" for city in cities for metric in metric_order]
@@ -1018,7 +1036,8 @@ elif page == "Hasil Analisa ABC":
                     # [BARU] Urutan kolom baru
                     display_cols_order = [
                         'No. Barang', 'BRAND Barang', 'Nama Barang', 'Kategori Barang', 
-                        'Penjualan Bln 3', 'Penjualan Bln 2', 'Penjualan Bln 1', 'AVG Mean', 'AVG WMA',
+                        # 'Penjualan Bln 3', 'Penjualan Bln 2', 'Penjualan Bln 1', # <-- Sembunyikan Bln 1/2/3
+                        'AVG Mean', 'AVG WMA',
                         # Kolom Analisa (paling kanan)
                         'Kategori ABC (Persen - Mean)', 'Kategori ABC (Persen - WMA)',
                         'Kategori ABC (Benchmark - Mean)', 'Kategori ABC (Benchmark - WMA)',
