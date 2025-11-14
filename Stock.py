@@ -23,7 +23,7 @@ st.sidebar.title("Analisis Stock dan ABC")
 
 page = st.sidebar.radio(
     "Menu Navigasi:",
-    ("Input Data", "Hasil Analisa Stock", "Hasil Analisa ABC"),
+    ("Input Data", "Hasil Analisa Stock", "Hasil Analisa ABC", "Hasil Analisis Margin"), # [DITAMBAHKAN] Halaman baru
     help="Pilih halaman untuk ditampilkan."
 )
 st.sidebar.markdown("---")
@@ -42,7 +42,10 @@ if 'stock_analysis_result' not in st.session_state:
 if 'abc_analysis_result' not in st.session_state:
     st.session_state.abc_analysis_result = None
 if 'bulan_columns_stock' not in st.session_state:
-    st.session_state.bulan_columns_stock = [] # Ditambahkan
+    st.session_state.bulan_columns_stock = [] 
+# [DITAMBAHKAN] Session state for portal
+if 'df_portal_analyzed' not in st.session_state:
+    st.session_state.df_portal_analyzed = pd.DataFrame()
 
 
 # --------------------------------Fungsi Umum & Google Drive--------------------------------
@@ -71,6 +74,7 @@ try:
         folder_produk = "1UdGbFzZ2Wv83YZLNwdU-rgY-LXlczsFv"
         folder_stock = "1PMeH_wvgRUnyiZyZ_wrmKAATX9JyWzq_"
         folder_hasil_analisis = "1TE4a8IegbWDKoVeLPG_oCbuU-qnhd1jE"
+        folder_portal = "1GOKVWugUMqN9aOWYCeFlKj-qTr2dA7_u" # [DITAMBAHKAN] Folder Portal
         DRIVE_AVAILABLE = True
 
 except Exception as e:
@@ -97,7 +101,12 @@ def download_file_from_gdrive(file_id):
 
 def download_and_read(file_id, file_name, **kwargs):
     fh = download_file_from_gdrive(file_id)
-    return pd.read_csv(fh, **kwargs) if file_name.endswith('.csv') else pd.read_excel(fh, **kwargs)
+    # [MODIFIKASI] Cek .xlsx, .xls, .csv
+    if file_name.endswith('.csv'):
+        return pd.read_csv(fh, **kwargs)
+    else:
+        # Asumsikan file excel jika bukan csv
+        return pd.read_excel(fh, **kwargs)
 
 def read_produk_file(file_id):
     fh = download_file_from_gdrive(file_id)
@@ -208,6 +217,33 @@ if page == "Input Data":
             st.success(f"File stock '{selected_stock_file['name']}' berhasil dimuat.")
     if not st.session_state.df_stock.empty:
         st.dataframe(st.session_state.df_stock.head())
+    
+    # [DITAMBAHKAN] Input Data Portal
+    st.header("4. Data Portal (Margin)")
+    with st.spinner("Mencari file portal di Google Drive..."):
+        portal_files_list = list_files_in_folder(drive_service, folder_portal)
+    
+    selected_portal_file = st.selectbox(
+        "Pilih file Portal dari Google Drive (pilih 1 file):",
+        options=[None] + portal_files_list,
+        format_func=lambda x: x['name'] if x else "Pilih file"
+    )
+    
+    # Tombol ini hanya untuk memuat, analisis akan di halaman terpisah
+    if st.button("Muat Data Portal"):
+        if selected_portal_file:
+            with st.spinner(f"Memuat file {selected_portal_file['name']}..."):
+                # Gunakan download_and_read yang fleksibel
+                df_portal = download_and_read(selected_portal_file['id'], selected_portal_file['name'])
+                st.session_state.df_portal = df_portal # Simpan data mentah
+                st.session_state.df_portal_analyzed = pd.DataFrame() # Reset hasil analisis
+                st.success(f"File portal '{selected_portal_file['name']}' berhasil dimuat.")
+                st.dataframe(st.session_state.df_portal.head())
+        else:
+            st.warning("⚠️ Harap pilih file portal terlebih dahulu.")
+            
+    if 'df_portal' in st.session_state and not st.session_state.df_portal.empty:
+        st.success("✅ Data portal telah dimuat.")
 
 
 elif page == "Hasil Analisa Stock":
@@ -561,9 +597,10 @@ elif page == "Hasil Analisa Stock":
                     # [REVISI] Tentukan urutan kolom sesuai permintaan
                     keys_base = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
                     metric_order_kota = (
-                        bulan_cols + 
+                        bulan_cols + # [URUTAN BARU] Kolom bulan dulu
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
-                        ['AVG WMA', 'AVG Mean', 'Max_Kategori_Kota (WMA)'] +
+                        ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] + # Total Kuantitas (meski = WMA)
+                        ['Max_Kategori_Kota (WMA)'] +
                         ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
@@ -607,7 +644,8 @@ elif page == "Hasil Analisa Stock":
                     pivot_cols = (
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
-                        ['AVG WMA', 'AVG Mean', 'Max_Kategori_Kota (WMA)'] +
+                        ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] +
+                        ['Max_Kategori_Kota (WMA)'] +
                         ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
@@ -624,7 +662,8 @@ elif page == "Hasil Analisa Stock":
                     metric_order = (
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
-                        ['AVG WMA', 'AVG Mean', 'Max_Kategori_Kota (WMA)'] +
+                        ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] +
+                        ['Max_Kategori_Kota (WMA)'] +
                         ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
@@ -1336,3 +1375,184 @@ elif page == "Hasil Analisa ABC":
                 st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+
+# =====================================================================================
+#                        [BARU] HALAMAN ANALISIS MARGIN
+# =====================================================================================
+elif page == "Hasil Analisis Margin":
+    st.title("📊 Hasil Analisis Margin")
+
+    if not DRIVE_AVAILABLE:
+        st.warning("Koneksi ke Google Drive gagal. Periksa log di sidebar.")
+        st.stop()
+
+    # --- FUNGSI LOKAL UNTUK HALAMAN INI ---
+    def highlight_kategori_abc(val): # A, B, C, D
+        warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da'}
+        return f'background-color: {warna.get(val, "")}'
+
+    def classify_abc_margin(df_input, metric_col, col_prefix):
+        """
+        Melakukan klasifikasi ABC (A=70, B=90, C=100, D=0/neg) 
+        berdasarkan kontribusi margin, dan mengembalikan DataFrame 
+        dengan kolom kategori baru.
+        """
+        df = df_input.copy()
+        kategori_col_name = f'Kategori ABC ({col_prefix})'
+        
+        # Buat helper DataFrame untuk kalkulasi agar index asli aman
+        # Pastikan SKU ada untuk merge nanti
+        if 'SKU' not in df.columns:
+            st.error("Kolom 'SKU' tidak ditemukan. Tidak dapat melakukan analisis.")
+            return df_input, []
+            
+        df_calc = df[['SKU', metric_col]].copy()
+        
+        # Sortir berdasarkan metrik
+        df_calc = df_calc.sort_values(by=metric_col, ascending=False)
+        
+        terjual = df_calc[df_calc[metric_col] > 0]
+        tidak_terjual = df_calc[df_calc[metric_col] <= 0]
+        
+        total_metric = terjual[metric_col].sum()
+
+        if total_metric > 0:
+            terjual['% kontribusi'] = 100 * terjual[metric_col] / total_metric
+            terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
+            terjual[kategori_col_name] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 70 else ('B' if x <= 90 else 'C'))
+        else:
+            terjual[kategori_col_name] = 'D' # Semua 'D' jika tidak ada margin positif
+        
+        tidak_terjual[kategori_col_name] = 'D' # 'D' untuk margin 0 atau negatif
+        
+        result_calc = pd.concat([terjual, tidak_terjual])
+        
+        # Gabungkan kolom kategori baru kembali ke DataFrame asli berdasarkan SKU
+        df_final = pd.merge(df, result_calc[['SKU', kategori_col_name]], on='SKU', how='left')
+        
+        # Isi NaN (jika ada SKU yg hilang krn error)
+        df_final[kategori_col_name] = df_final[kategori_col_name].fillna('D')
+        
+        return df_final, [kategori_col_name]
+    
+    # --- UI UNTUK MEMUAT DATA ---
+    st.header("1. Muat Data Portal")
+    
+    with st.spinner("Mencari file portal di Google Drive..."):
+        portal_files_list = list_files_in_folder(drive_service, folder_portal)
+    
+    selected_portal_file = st.selectbox(
+        "Pilih file Portal dari Google Drive (pilih 1 file):",
+        options=[None] + portal_files_list,
+        format_func=lambda x: x['name'] if x else "Pilih file"
+    )
+
+    if st.button("Muat & Analisa Data Margin"):
+        if selected_portal_file:
+            with st.spinner(f"Memuat dan menganalisis file {selected_portal_file['name']}..."):
+                try:
+                    df_portal = download_and_read(selected_portal_file['id'], selected_portal_file['name'])
+                    
+                    # Pastikan kolom SKU ada
+                    if 'SKU' not in df_portal.columns:
+                        st.error("File portal tidak memiliki kolom 'SKU' yang wajib ada.")
+                        st.stop()
+                    
+                    # Definisikan platform dan kolomnya
+                    platforms = {
+                        "Offline": "Margin Harga Offline (Nilai)",
+                        "Website": "Margin Harga Website (Nilai)",
+                        "Toped OS": "Margin Harga Toped OS (Nilai)",
+                        "Shopee": "Margin Harga Shopee (Nilai)"
+                    }
+                    
+                    new_abc_cols = []
+                    df_analyzed = df_portal.copy()
+
+                    # Jalankan ABC untuk setiap platform
+                    for platform_name, metric_col in platforms.items():
+                        if metric_col in df_analyzed.columns:
+                            df_analyzed, new_col = classify_abc_margin(df_analyzed, metric_col, platform_name)
+                            new_abc_cols.extend(new_col)
+                        else:
+                            st.warning(f"Kolom margin '{metric_col}' tidak ditemukan. Analisis ABC untuk {platform_name} dilewati.")
+                    
+                    # --- Menyusun Ulang Urutan Kolom ---
+                    cols = list(df_analyzed.columns)
+                    
+                    # List kolom ABC baru yg sudah dibuat
+                    abc_cols_created = [col for col in new_abc_cols if col in cols]
+                    
+                    # Hapus kolom ABC dari posisi aslinya (di akhir)
+                    cols_base = [col for col in cols if col not in abc_cols_created]
+                    
+                    final_cols = []
+                    for col in cols_base:
+                        final_cols.append(col)
+                        # Cek apakah ini kolom 'Margin Persen' dan masukkan ABC setelahnya
+                        if col == 'Margin Persen Offline (%)' and 'Kategori ABC (Offline)' in abc_cols_created:
+                            final_cols.append('Kategori ABC (Offline)')
+                        elif col == 'Margin Persen Website (%)' and 'Kategori ABC (Website)' in abc_cols_created:
+                            final_cols.append('Kategori ABC (Website)')
+                        elif col == 'Margin Persen Toped OS (%)' and 'Kategori ABC (Toped OS)' in abc_cols_created:
+                            final_cols.append('Kategori ABC (Toped OS)')
+                        elif col == 'Margin Persen Shopee (%)' and 'Kategori ABC (Shopee)' in abc_cols_created:
+                            final_cols.append('Kategori ABC (Shopee)')
+                            
+                    st.session_state.df_portal_analyzed = df_analyzed[final_cols]
+                    st.success("Analisis margin ABC berhasil dijalankan!")
+
+                except Exception as e:
+                    st.error(f"Gagal memuat atau menganalisis file: {e}")
+                    st.session_state.df_portal_analyzed = pd.DataFrame()
+        else:
+            st.warning("⚠️ Harap pilih file portal terlebih dahulu.")
+
+    # --- Menampilkan Hasil Analisis ---
+    if not st.session_state.df_portal_analyzed.empty:
+        st.header("2. Hasil Analisis Margin ABC")
+        df_display = st.session_state.df_portal_analyzed
+        
+        # --- Buat Konfigurasi Kolom Dinamis ---
+        column_config_margin = {}
+        cols_to_highlight = []
+        
+        for col in df_display.columns:
+            if "HPP" in col or "Margin Harga" in col:
+                column_config_margin[col] = st.column_config.NumberColumn(format="%.0f")
+            elif "Margin Persen" in col:
+                column_config_margin[col] = st.column_config.NumberColumn(format="%.2f%%")
+            elif "Kategori ABC" in col:
+                cols_to_highlight.append(col)
+        
+        # Terapkan styling
+        styler = df_display.style
+        
+        # Terapkan format angka
+        styler = styler.format(
+            formatter={col: "{:.0f}" for col, config in column_config_margin.items() if config.format == "%.0f"},
+            na_rep='-'
+        )
+        styler = styler.format(
+            formatter={col: "{:.2f}%" for col, config in column_config_margin.items() if config.format == "%.2f%%"},
+            na_rep='-'
+        )
+        
+        # Terapkan highlight
+        for col_abc in cols_to_highlight:
+            styler = styler.apply(lambda x: x.map(highlight_kategori_abc), subset=[col_abc])
+            
+        st.dataframe(styler, use_container_width=True)
+
+        # --- Tombol Download ---
+        st.header("3. Unduh Hasil Analisis")
+        excel_data_margin = convert_df_to_excel(df_display)
+        st.download_button(
+            label="📥 Unduh Hasil Analisis Margin (Excel)",
+            data=excel_data_margin,
+            file_name="hasil_analisis_margin_abc.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    
+    elif 'df_portal' in st.session_state and not st.session_state.df_portal.empty:
+        st.info("Data portal telah dimuat. Klik tombol 'Muat & Analisa Data Margin' di atas untuk melihat hasilnya.")
