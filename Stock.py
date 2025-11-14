@@ -633,29 +633,42 @@ elif page == "Hasil Analisa Stock":
                     final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
+                    
                     # [PERBAIKAN] Blok kode yang diperbarui untuk pemformatan
                     
                     # [REVISI] Buat DataFrame yang akan ditampilkan terlebih dahulu
-                    df_to_style = pivot_result[final_display_cols]
+                    df_to_style = pivot_result[final_display_cols].copy() # Gunakan .copy()
                     
-                    # Buat styler
-                    styler = df_to_style.style
-                    
-                    # Pilih kolom numerik secara otomatis, KECUALI keys
+                    # 1. Tentukan kolom numerik vs. object/string
                     numeric_cols_to_format = []
-                    for col in df_to_style.select_dtypes(include=np.number).columns:
-                        if col not in keys: # keys = ['No. Barang', 'Kategori Barang', ...]
-                            numeric_cols_to_format.append(col)
+                    object_cols_to_format = []
                     
-                    # Terapkan format HANYA ke kolom numerik yang valid
-                    if numeric_cols_to_format:
-                        styler = styler.format('{:.0f}', na_rep='-', subset=numeric_cols_to_format)
+                    for col in df_to_style.columns:
+                        if col not in keys: # 'keys' adalah index
+                            if pd.api.types.is_numeric_dtype(df_to_style[col]):
+                                numeric_cols_to_format.append(col)
+                            else:
+                                object_cols_to_format.append(col)
+                                
+                    # 2. Isi NaN di DataFrame SEBELUM styling
+                    # Isi NaN numerik dengan 0 (agar format {:.0f} tidak gagal)
+                    df_to_style[numeric_cols_to_format] = df_to_style[numeric_cols_to_format].fillna(0)
+                    # Isi NaN string/object with '-'
+                    df_to_style[object_cols_to_format] = df_to_style[object_cols_to_format].fillna('-')
                     
-                    # Format sisa kolom (string/object) hanya untuk mengatur na_rep
-                    other_cols = [col for col in df_to_style.columns if col not in numeric_cols_to_format]
-                    if other_cols:
-                         styler = styler.format(na_rep='-', subset=other_cols)
-
+                    # 3. Buat format dictionary
+                    format_dict_pivot = {}
+                    for col in numeric_cols_to_format:
+                        format_dict_pivot[col] = '{:.0f}'
+                        
+                    # (Opsional) Tentukan format string untuk object cols agar konsisten
+                    for col in object_cols_to_format:
+                        format_dict_pivot[col] = '{}' # Format as-is (string)
+                        
+                    # 4. Buat Styler dan terapkan format
+                    # Kita tidak perlu na_rep='-' lagi karena NaN sudah di-handle
+                    styler = df_to_style.style.format(format_dict_pivot) 
+                    
                     # Tampilkan styler yang sudah diformat
                     st.dataframe(
                         styler,
@@ -667,7 +680,8 @@ elif page == "Hasil Analisa Stock":
             output_stock = BytesIO()
             with pd.ExcelWriter(output_stock, engine='openpyxl') as writer:
                 if 'pivot_result' in locals() and not pivot_result.empty:
-                    pivot_result[final_display_cols].to_excel(writer, sheet_name="All Cities Pivot", index=False)
+                    # [REVISI] Gunakan df_to_style yang sudah bersih untuk di-download
+                    df_to_style.to_excel(writer, sheet_name="All Cities Pivot", index=False)
                 final_result_display.to_excel(writer, sheet_name="Filtered Data", index=False)
 
             st.download_button(
@@ -1120,32 +1134,43 @@ elif page == "Hasil Analisa ABC":
                 # Gabungkan pivot utama dengan data 'All'
                 pivot_abc_final = pd.merge(pivot_abc, total_final, on=keys, how='left')
                 
+                
                 # [PERBAIKAN] Blok kode yang diperbarui untuk pemformatan
-
+                
                 # [REVISI] Buat DataFrame yang akan ditampilkan terlebih dahulu
                 df_to_style_abc = pivot_abc_final.copy() # .copy() untuk keamanan
-                styler_abc = df_to_style_abc.style
                 
-                # 1. Format kolom persentase terlebih dahulu
-                perc_cols = [col for col in df_to_style_abc.columns if "% Kontribusi" in col]
-                if perc_cols:
-                    styler_abc = styler_abc.format('{:.2f}%', na_rep='-', subset=perc_cols)
+                # 1. Pisahkan kolom
+                numeric_cols_abc = []
+                perc_cols_abc = []
+                object_cols_abc = []
                 
-                # 2. Format numerik sisanya (non-key, non-percent)
-                numeric_cols_to_format_abc = []
-                for col in df_to_style_abc.select_dtypes(include=np.number).columns:
-                    # Lewati jika itu key ATAU jika sudah diformat sebagai persen
-                    if col not in keys and col not in perc_cols:
-                        numeric_cols_to_format_abc.append(col)
+                for col in df_to_style_abc.columns:
+                    if col not in keys:
+                        if "% Kontribusi" in col:
+                            perc_cols_abc.append(col)
+                        elif pd.api.types.is_numeric_dtype(df_to_style_abc[col]):
+                            numeric_cols_abc.append(col)
+                        else:
+                            object_cols_abc.append(col)
+                            
+                # 2. Isi NaN di DataFrame SEBELUM styling
+                df_to_style_abc[numeric_cols_abc] = df_to_style_abc[numeric_cols_abc].fillna(0)
+                df_to_style_abc[perc_cols_abc] = df_to_style_abc[perc_cols_abc].fillna(0) # Persen NaN jadi 0
+                df_to_style_abc[object_cols_abc] = df_to_style_abc[object_cols_abc].fillna('-')
                 
-                if numeric_cols_to_format_abc:
-                    styler_abc = styler_abc.format('{:.0f}', na_rep='-', subset=numeric_cols_to_format_abc)
+                # 3. Buat format dictionary
+                format_dict_abc_pivot = {}
+                for col in numeric_cols_abc:
+                    format_dict_abc_pivot[col] = '{:.0f}'
+                for col in perc_cols_abc:
+                    format_dict_abc_pivot[col] = '{:.2f}%' # Tampilkan 0 sebagai 0.00%
+                for col in object_cols_abc:
+                    format_dict_abc_pivot[col] = '{}'
+                    
+                # 4. Buat Styler dan terapkan format
+                styler_abc = df_to_style_abc.style.format(format_dict_abc_pivot)
                 
-                # 3. Format sisanya (string, object, dll) hanya untuk na_rep
-                other_cols = [col for col in df_to_style_abc.columns if col not in perc_cols and col not in numeric_cols_to_format_abc]
-                if other_cols:
-                    styler_abc = styler_abc.format(na_rep='-', subset=other_cols)
-
                 # Tampilkan styler yang sudah diformat
                 st.dataframe(
                     styler_abc,
@@ -1156,7 +1181,8 @@ elif page == "Hasil Analisa ABC":
             st.header("💾 Unduh Hasil Analisis ABC")
             output_abc = BytesIO()
             with pd.ExcelWriter(output_abc, engine='openpyxl') as writer:
-                pivot_abc_final.to_excel(writer, sheet_name="All Cities Pivot", index=False)
+                # [REVISI] Gunakan df_to_style_abc yang sudah bersih untuk di-download
+                df_to_style_abc.to_excel(writer, sheet_name="All Cities Pivot", index=False)
                 for city in sorted(result_display['City'].unique()):
                     sheet_name = city[:31]
                     result_display[result_display['City'] == city].to_excel(writer, sheet_name=sheet_name, index=False)
