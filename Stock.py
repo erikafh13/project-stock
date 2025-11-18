@@ -289,18 +289,69 @@ elif page == "Hasil Analisa Stock":
         result_df.drop([col for col in cols_to_drop if col in result_df.columns], axis=1, inplace=True)
         return result_df
 
-    # [DIHAPUS] Fungsi classify_abc_benchmark
-    # def classify_abc_benchmark(df_grouped, metric_col):
-    #     ...
+    # [DITAMBAHKAN] Metode Log-Benchmark (A, B, C, D, E, F)
+    def classify_abc_log_benchmark(df_grouped, metric_col):
+        df = df_grouped.copy()
+        if 'Kategori Barang' not in df.columns:
+            st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
+            df[f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "")})'] = 'N/A'
+            return df
+        
+        # Buat nama kolom unik
+        kategori_col_name = f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "")})'
+        ratio_col_name = f'Ratio (Log-Benchmark - {metric_col.replace("AVG ", "")})'
+        log_col_name = f'Log ({metric_col.replace("AVG ", "")})'
+        avg_log_col_name = f'Avg_Log ({metric_col.replace("AVG ", "")})'
+        
+        # 1. Hitung Log(WMA) hanya untuk WMA > 0, sisanya NaN
+        df[log_col_name] = df[metric_col].apply(lambda x: np.log(x) if x > 0 else np.nan)
+        
+        # 2. Hitung patokan (rata-rata log) per grup, abaikan NaN
+        df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
+        
+        # 3. Hitung rasio Log(WMA) / Avg_Log_WMA
+        df[ratio_col_name] = df[log_col_name] / df[avg_log_col_name]
+        
+        # Isi NaN hasil pembagian (misal 0/0 atau log/NaN) dengan 0
+        df[ratio_col_name] = df[ratio_col_name].fillna(0)
+        
+        def apply_category_log(row):
+            # 4. Kategori 'F' untuk AVG WMA <= 0
+            if row[metric_col] <= 0:
+                return 'F'
+            
+            # 5. Kategorikan sisanya (A-E) berdasarkan rasio
+            ratio = row[ratio_col_name]
+            if ratio > 2:
+                return 'A'
+            elif ratio > 1.5:
+                return 'B'
+            elif ratio > 1:
+                return 'C'
+            elif ratio > 0.5:
+                return 'D'
+            else:
+                return 'E' # Termasuk 0-0.5
+        
+        # 6. Terapkan kategori
+        df[kategori_col_name] = df.apply(apply_category_log, axis=1)
+        return df
 
     # [DITAMBAHKAN] Highlight untuk Persen A-E
     def highlight_kategori_abc_persen(val): # A, B, C, D, E
         warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da', 'E': '#e9ecef'}
         return f'background-color: {warna.get(val, "")}'
 
-    # [DIHAPUS] Fungsi highlight_kategori_abc_benchmark
-    # def highlight_kategori_abc_benchmark(val):
-    #     ...
+    # [DITAMBAHKAN] Highlight untuk Log A-F
+    def highlight_kategori_abc_log(val): # A, B, C, D, E, F
+        warna = {
+            'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 
+            'D': '#f8d7da', 'E': '#e9ecef', 'F': '#6c757d'
+        }
+        color = warna.get(val, "")
+        text_color = "white" if val == 'F' else "black"
+        return f'background-color: {color}; color: {text_color}'
+
 
     def calculate_min_stock(avg_wma):
         # [PERUBAHAN DARI USER]
@@ -453,8 +504,8 @@ elif page == "Hasil Analisa Stock":
                 # [MODIFIKASI] Rename kolom ABC Persen
                 final_result.rename(columns={'Kategori ABC': 'Kategori ABC (Persen - WMA)'}, inplace=True)
                 
-                # [DIHAPUS] Pemanggilan classify_abc_benchmark
-                # final_result = classify_abc_benchmark(final_result, metric_col='AVG WMA')
+                # [DITAMBAHKAN] Jalankan ABC Log-Benchmark (A-F)
+                final_result = classify_abc_log_benchmark(final_result, metric_col='AVG WMA')
 
                 # [DIHAPUS] Perhitungan Safety Stock
                 
@@ -496,16 +547,21 @@ elif page == "Hasil Analisa Stock":
                 
                 final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang_baru(stock_surabaya=row['Stock Surabaya'], stock_cabang=row['Stock Cabang'], stock_total=row['Stock Total'], suggest_po_all=row['Suggest PO All'], so_cabang=row['AVG WMA'], add_stock_cabang=row['Add Stock']), axis=1)
                 
-                # [MODIFIKASI] Hapus Safety Stock & ROP dari numeric_cols
+                # [REVISI] numeric_cols untuk int
                 numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Add Stock', 'Suggest PO All', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'AVG WMA', 'AVG Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3']
-                # [DITAMBAHKAN] Tambahkan kolom bulan ke numeric cols
                 numeric_cols.extend(bulan_columns_renamed)
-                # [DIHAPUS] Max_Kategori_Kota
-                # numeric_cols.append('Max_Kategori_Kota (WMA)') 
 
                 for col in numeric_cols:
                     if col in final_result.columns:
                         final_result[col] = final_result[col].round(0).astype(int)
+                
+                # [DITAMBAHKAN] Bulatkan kolom float
+                float_cols = [
+                    'Log (WMA)', 'Avg_Log (WMA)', 'Ratio (Log-Benchmark - WMA)'
+                ]
+                for col in float_cols:
+                    if col in final_result.columns:
+                        final_result[col] = final_result[col].round(2)
                 
                 st.session_state.stock_analysis_result = final_result.copy()
                 # [DITAMBAHKAN] Simpan nama kolom bulan
@@ -533,17 +589,19 @@ elif page == "Hasil Analisa Stock":
         final_result_display = final_result_to_filter.copy()
         
         st.header("Filter Hasil (Hanya untuk Tabel per Kota)")
-        # [PERUBAHAN] Mengubah layout kolom filter dari 3 menjadi 2
-        col_h1, col_h2 = st.columns(2)
-        # [MODIFIKASI] Filter untuk 2 kategori ABC
+        # [PERUBAHAN] Kembali ke 3 kolom filter
+        col_h1, col_h2, col_h3 = st.columns(3)
+        
         abc_persen_options = sorted(final_result_display['Kategori ABC (Persen - WMA)'].dropna().unique().astype(str))
         selected_abc_persen = col_h1.multiselect("Kategori ABC (Persen):", abc_persen_options)
-        # [DIHAPUS] Filter ABC Benchmark
-        # abc_bench_options = sorted(final_result_display['Kategori ABC (Benchmark - WMA)'].dropna().unique().astype(str))
-        # selected_abc_bench = col_h2.multiselect("Kategori ABC (Benchmark):", abc_bench_options)
+        
+        # [DITAMBAHKAN] Filter ABC Log-Benchmark
+        abc_log_options = sorted(final_result_display['Kategori ABC (Log-Benchmark - WMA)'].dropna().unique().astype(str))
+        selected_abc_log = col_h2.multiselect("Kategori ABC (Log):", abc_log_options)
+        
         status_options = sorted(final_result_display['Status Stock'].dropna().unique().astype(str))
-        # [PERUBAHAN] Memindahkan status ke col_h2
-        selected_status = col_h2.multiselect("Status Stock:", status_options)
+        selected_status = col_h3.multiselect("Status Stock:", status_options) # Pindah ke col h3
+        
         st.markdown("---")
         tab1, tab2 = st.tabs(["Hasil Tabel", "Dashboard"])
 
@@ -554,10 +612,9 @@ elif page == "Hasil Analisa Stock":
             for city in sorted(final_result_display['City'].unique()):
                 with st.expander(f"📍 Lihat Hasil Stok untuk Kota: {city}"):
                     city_df = final_result_display[final_result_display['City'] == city].copy()
-                    # [MODIFIKASI] Terapkan 2 filter
+                    # [MODIFIKASI] Terapkan 3 filter
                     if selected_abc_persen: city_df = city_df[city_df['Kategori ABC (Persen - WMA)'].isin(selected_abc_persen)]
-                    # [DIHAPUS] Filter Benchmark
-                    # if selected_abc_bench: city_df = city_df[city_df['Kategori ABC (Benchmark - WMA)'].isin(selected_abc_bench)]
+                    if selected_abc_log: city_df = city_df[city_df['Kategori ABC (Log-Benchmark - WMA)'].isin(selected_abc_log)]
                     if selected_status: city_df = city_df[city_df['Status Stock'].isin(selected_status)]
                     
                     if city_df.empty:
@@ -569,9 +626,9 @@ elif page == "Hasil Analisa Stock":
                     metric_order_kota = (
                         bulan_cols + # [URUTAN BARU] Kolom bulan dulu
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
-                        ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] + # Total Kuantitas (meski = WMA)
-                        # [DIHAPUS] Max_Kategori_Kota (WMA)
-                        ['Kategori ABC (Persen - WMA)'] + # [DIHAPUS] Benchmark
+                        ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] + 
+                        ['Kategori ABC (Persen - WMA)'] +
+                        ['Kategori ABC (Log-Benchmark - WMA)', 'Ratio (Log-Benchmark - WMA)'] + # [DITAMBAHKAN]
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -586,19 +643,20 @@ elif page == "Hasil Analisa Stock":
                     keys_to_skip = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
                     for col_name in city_df_display.columns: # Gunakan city_df_display
                         if pd.api.types.is_numeric_dtype(city_df_display[col_name]):
-                            # Jangan format kolom Kunci
                             if col_name in keys_to_skip:
                                 continue
                             
-                            # Format sisanya sebagai angka bulat
-                            format_dict_kota[col_name] = '{:.0f}'
+                            # [DITAMBAHKAN] Format untuk log/ratio
+                            if "Ratio" in col_name or "Log" in col_name:
+                                format_dict_kota[col_name] = '{:.2f}'
+                            else:
+                                format_dict_kota[col_name] = '{:.0f}'
 
-                    # [MODIFIKASI] Terapkan 2 highlight + format dinamis + urutan kolom
+                    # [MODIFIKASI] Terapkan 3 highlight + format dinamis + urutan kolom
                     st.dataframe(
                         city_df_display.style.format(format_dict_kota, na_rep='-') # Gunakan city_df_display
                                      .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
-                                     # [DIHAPUS] Highlight Benchmark
-                                     # .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)'])
+                                     .apply(lambda x: x.map(highlight_kategori_abc_log), subset=['Kategori ABC (Log-Benchmark - WMA)']) # [DITAMBAHKAN]
                                      .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
                                      .set_table_styles([header_style]), 
                         use_container_width=True
@@ -616,8 +674,8 @@ elif page == "Hasil Analisa Stock":
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] +
-                        # [DIHAPUS] Benchmark cols
                         ['Kategori ABC (Persen - WMA)'] +
+                        ['Kategori ABC (Log-Benchmark - WMA)', 'Ratio (Log-Benchmark - WMA)', 'Log (WMA)', 'Avg_Log (WMA)'] + # [DITAMBAHKAN]
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -634,8 +692,8 @@ elif page == "Hasil Analisa Stock":
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] +
-                        # [DIHAPUS] Benchmark cols
                         ['Kategori ABC (Persen - WMA)'] +
+                        ['Kategori ABC (Log-Benchmark - WMA)', 'Ratio (Log-Benchmark - WMA)', 'Log (WMA)', 'Avg_Log (WMA)'] + # [DITAMBAHKAN]
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -671,11 +729,15 @@ elif page == "Hasil Analisa Stock":
                     
                     # 1. Tentukan kolom numerik vs. object/string
                     numeric_cols_to_format = []
+                    float_cols_to_format = [] # [DITAMBAHKAN]
                     object_cols_to_format = []
                     
                     for col in df_to_style.columns:
                         if col not in keys: # 'keys' adalah index
-                            if pd.api.types.is_numeric_dtype(df_to_style[col]):
+                            # [DITAMBAHKAN] Kondisi untuk log/ratio
+                            if "Ratio" in col or "Log" in col:
+                                float_cols_to_format.append(col)
+                            elif pd.api.types.is_numeric_dtype(df_to_style[col]):
                                 numeric_cols_to_format.append(col)
                             else:
                                 object_cols_to_format.append(col)
@@ -683,6 +745,7 @@ elif page == "Hasil Analisa Stock":
                     # 2. Isi NaN di DataFrame SEBELUM styling
                     # Isi NaN numerik dengan 0
                     df_to_style[numeric_cols_to_format] = df_to_style[numeric_cols_to_format].fillna(0)
+                    df_to_style[float_cols_to_format] = df_to_style[float_cols_to_format].fillna(0) # [DITAMBAHKAN]
                     # Isi NaN string/object with '-'
                     df_to_style[object_cols_to_format] = df_to_style[object_cols_to_format].fillna('-')
                     
@@ -690,6 +753,8 @@ elif page == "Hasil Analisa Stock":
                     column_config_stock = {}
                     for col in numeric_cols_to_format:
                         column_config_stock[col] = st.column_config.NumberColumn(format="%.0f")
+                    for col in float_cols_to_format: # [DITAMBAHKAN]
+                        column_config_stock[col] = st.column_config.NumberColumn(format="%.2f")
 
                     # Tampilkan DataFrame (bukan Styler) dengan format baru
                     st.dataframe(
@@ -847,6 +912,7 @@ elif page == "Hasil Analisa ABC":
             df[kategori_col_name] = df.apply(apply_category_log, axis=1)
             return df
 
+
         # --- Fungsi Highlighting ---
         def highlight_kategori_abc_persen(val): # A, B, C, D
             warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da'}
@@ -861,6 +927,7 @@ elif page == "Hasil Analisa ABC":
             color = warna.get(val, "")
             text_color = "white" if val == 'F' else "black"
             return f'background-color: {color}; color: {text_color}'
+
 
         # --- Validasi Data ---
         if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
