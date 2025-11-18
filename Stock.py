@@ -1231,8 +1231,9 @@ elif page == "Hasil Analisa ABC":
 
                 total_abc['City'] = 'All' # Dummy city
                 
-                kategori_mapping = result_display[keys + ['Kategori Barang']].drop_duplicates()
-                total_abc = pd.merge(total_abc.drop(columns=['Kategori Barang'], errors='ignore'), kategori_mapping, on=keys, how='left')
+                # [PERBAIKAN] Hapus dua baris yang error
+                # kategori_mapping = result_display[keys].drop_duplicates()
+                # total_abc = pd.merge(total_abc.drop(columns=['Kategori Barang'], errors='ignore'), kategori_mapping, on=keys, how='left')
 
                 # Jalankan 4 Analisa untuk 'All'
                 all_persen_mean = classify_abc_dynamic(total_abc.copy(), metric_col='AVG Mean')
