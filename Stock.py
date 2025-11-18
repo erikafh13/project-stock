@@ -271,7 +271,7 @@ elif page == "Hasil Analisa Stock":
         if total_kuantitas > 0:
             terjual['% kontribusi'] = 100 * terjual['Total Kuantitas'] / total_kuantitas
             terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
-            # [MODIFIKASI] A=70, B=85, C=95, D=100
+            # [PERUBAHAN DARI USER] A=50, B=75, C=90, D=100
             terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 50 else ('B' if x <= 75 else ('C' if x <= 90 else 'D')))
         else:
             terjual['% kontribusi'] = 0
@@ -289,56 +289,21 @@ elif page == "Hasil Analisa Stock":
         result_df.drop([col for col in cols_to_drop if col in result_df.columns], axis=1, inplace=True)
         return result_df
 
-    # [DITAMBAHKAN] Metode Benchmark (A, B, C, D, E)
-    def classify_abc_benchmark(df_grouped, metric_col):
-        df = df_grouped.copy()
-        if 'Kategori Barang' not in df.columns:
-            st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
-            df[f'Kategori ABC (Benchmark - {metric_col.replace("AVG ", "")})'] = 'N/A'
-            return df
-        
-        # Buat nama kolom unik
-        kategori_col_name = f'Kategori ABC (Benchmark - {metric_col.replace("AVG ", "")})'
-        max_col_name = f'Max_Kategori_Kota ({metric_col.replace("AVG ", "")})'
-        
-        df[max_col_name] = df.groupby(['City', 'Kategori Barang'])[metric_col].transform('max')
-        
-        def apply_category(row):
-            metric = row[metric_col]
-            max_val = row[max_col_name]
-            
-            if metric <= 0:
-                return 'E'
-            if max_val == 0: 
-                return 'D' 
-            
-            kuartal_1 = max_val * 0.75
-            kuartal_2 = max_val * 0.50
-            kuartal_3 = max_val * 0.25
-
-            if metric > kuartal_1:
-                return 'A'
-            elif metric > kuartal_2:
-                return 'B'
-            elif metric > kuartal_3:
-                return 'C'
-            else: 
-                return 'D'
-                
-        df[kategori_col_name] = df.apply(apply_category, axis=1)
-        return df
+    # [DIHAPUS] Fungsi classify_abc_benchmark
+    # def classify_abc_benchmark(df_grouped, metric_col):
+    #     ...
 
     # [DITAMBAHKAN] Highlight untuk Persen A-E
     def highlight_kategori_abc_persen(val): # A, B, C, D, E
         warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da', 'E': '#e9ecef'}
         return f'background-color: {warna.get(val, "")}'
 
-    # [DITAMBAHKAN] Highlight untuk Benchmark A-E
-    def highlight_kategori_abc_benchmark(val): # A, B, C, D, E
-        warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da', 'E': '#e9ecef'}
-        return f'background-color: {warna.get(val, "")}'
+    # [DIHAPUS] Fungsi highlight_kategori_abc_benchmark
+    # def highlight_kategori_abc_benchmark(val):
+    #     ...
 
     def calculate_min_stock(avg_wma):
+        # [PERUBAHAN DARI USER]
         return avg_wma * (30/30)
 
     # [MODIFIKASI] Logika Status Stock
@@ -361,7 +326,7 @@ elif page == "Hasil Analisa Stock":
 
     # [MODIFIKASI] Logika Max Stock A-E
     def calculate_max_stock(avg_wma, category):
-        # A=2, B=1, C=1, D=1 (low sales), E=0 (no sales)
+        # [PERUBAHAN DARI USER] A=2, B=1.5, C=1, D=1, E=0
         multiplier = {'A': 2, 'B': 1.5, 'C': 1, 'D': 1, 'E': 0} 
         return avg_wma * multiplier.get(category, 0)
 
@@ -370,8 +335,9 @@ elif page == "Hasil Analisa Stock":
     def hitung_po_cabang_baru(stock_surabaya, stock_cabang, stock_total, suggest_po_all, so_cabang, add_stock_cabang):
         try:
             if stock_surabaya < stock_cabang: return 0
-            kebutuhan_21_hari = (so_cabang / 30) * 30
-            kondisi_3_terpenuhi = stock_cabang < kebutuhan_21_hari
+            # [PERUBAHAN DARI USER] kebutuhan 30 hari
+            kebutuhan_30_hari = (so_cabang / 30) * 30
+            kondisi_3_terpenuhi = stock_cabang < kebutuhan_30_hari
             kondisi_2_terpenuhi = stock_total < suggest_po_all
             if kondisi_2_terpenuhi and kondisi_3_terpenuhi:
                 if stock_total > 0:
@@ -487,8 +453,8 @@ elif page == "Hasil Analisa Stock":
                 # [MODIFIKASI] Rename kolom ABC Persen
                 final_result.rename(columns={'Kategori ABC': 'Kategori ABC (Persen - WMA)'}, inplace=True)
                 
-                # [DITAMBAHKAN] Jalankan ABC Benchmark (A-E)
-                final_result = classify_abc_benchmark(final_result, metric_col='AVG WMA')
+                # [DIHAPUS] Pemanggilan classify_abc_benchmark
+                # final_result = classify_abc_benchmark(final_result, metric_col='AVG WMA')
 
                 # [DIHAPUS] Perhitungan Safety Stock
                 
@@ -534,8 +500,8 @@ elif page == "Hasil Analisa Stock":
                 numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Add Stock', 'Suggest PO All', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'AVG WMA', 'AVG Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3']
                 # [DITAMBAHKAN] Tambahkan kolom bulan ke numeric cols
                 numeric_cols.extend(bulan_columns_renamed)
-                # [REVISI] Tambahkan Max_Kategori_Kota
-                numeric_cols.append('Max_Kategori_Kota (WMA)') 
+                # [DIHAPUS] Max_Kategori_Kota
+                # numeric_cols.append('Max_Kategori_Kota (WMA)') 
 
                 for col in numeric_cols:
                     if col in final_result.columns:
@@ -567,14 +533,17 @@ elif page == "Hasil Analisa Stock":
         final_result_display = final_result_to_filter.copy()
         
         st.header("Filter Hasil (Hanya untuk Tabel per Kota)")
-        col_h1, col_h2, col_h3 = st.columns(3)
+        # [PERUBAHAN] Mengubah layout kolom filter dari 3 menjadi 2
+        col_h1, col_h2 = st.columns(2)
         # [MODIFIKASI] Filter untuk 2 kategori ABC
         abc_persen_options = sorted(final_result_display['Kategori ABC (Persen - WMA)'].dropna().unique().astype(str))
         selected_abc_persen = col_h1.multiselect("Kategori ABC (Persen):", abc_persen_options)
-        abc_bench_options = sorted(final_result_display['Kategori ABC (Benchmark - WMA)'].dropna().unique().astype(str))
-        selected_abc_bench = col_h2.multiselect("Kategori ABC (Benchmark):", abc_bench_options)
+        # [DIHAPUS] Filter ABC Benchmark
+        # abc_bench_options = sorted(final_result_display['Kategori ABC (Benchmark - WMA)'].dropna().unique().astype(str))
+        # selected_abc_bench = col_h2.multiselect("Kategori ABC (Benchmark):", abc_bench_options)
         status_options = sorted(final_result_display['Status Stock'].dropna().unique().astype(str))
-        selected_status = col_h3.multiselect("Status Stock:", status_options)
+        # [PERUBAHAN] Memindahkan status ke col_h2
+        selected_status = col_h2.multiselect("Status Stock:", status_options)
         st.markdown("---")
         tab1, tab2 = st.tabs(["Hasil Tabel", "Dashboard"])
 
@@ -585,9 +554,10 @@ elif page == "Hasil Analisa Stock":
             for city in sorted(final_result_display['City'].unique()):
                 with st.expander(f"📍 Lihat Hasil Stok untuk Kota: {city}"):
                     city_df = final_result_display[final_result_display['City'] == city].copy()
-                    # [MODIFIKASI] Terapkan 3 filter
+                    # [MODIFIKASI] Terapkan 2 filter
                     if selected_abc_persen: city_df = city_df[city_df['Kategori ABC (Persen - WMA)'].isin(selected_abc_persen)]
-                    if selected_abc_bench: city_df = city_df[city_df['Kategori ABC (Benchmark - WMA)'].isin(selected_abc_bench)]
+                    # [DIHAPUS] Filter Benchmark
+                    # if selected_abc_bench: city_df = city_df[city_df['Kategori ABC (Benchmark - WMA)'].isin(selected_abc_bench)]
                     if selected_status: city_df = city_df[city_df['Status Stock'].isin(selected_status)]
                     
                     if city_df.empty:
@@ -600,8 +570,8 @@ elif page == "Hasil Analisa Stock":
                         bulan_cols + # [URUTAN BARU] Kolom bulan dulu
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] + # Total Kuantitas (meski = WMA)
-                        ['Max_Kategori_Kota (WMA)'] +
-                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
+                        # [DIHAPUS] Max_Kategori_Kota (WMA)
+                        ['Kategori ABC (Persen - WMA)'] + # [DIHAPUS] Benchmark
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -623,11 +593,12 @@ elif page == "Hasil Analisa Stock":
                             # Format sisanya sebagai angka bulat
                             format_dict_kota[col_name] = '{:.0f}'
 
-                    # [MODIFIKASI] Terapkan 3 highlight + format dinamis + urutan kolom
+                    # [MODIFIKASI] Terapkan 2 highlight + format dinamis + urutan kolom
                     st.dataframe(
                         city_df_display.style.format(format_dict_kota, na_rep='-') # Gunakan city_df_display
                                      .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
-                                     .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)'])
+                                     # [DIHAPUS] Highlight Benchmark
+                                     # .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)'])
                                      .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
                                      .set_table_styles([header_style]), 
                         use_container_width=True
@@ -645,8 +616,8 @@ elif page == "Hasil Analisa Stock":
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] +
-                        ['Max_Kategori_Kota (WMA)'] +
-                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
+                        # [DIHAPUS] Benchmark cols
+                        ['Kategori ABC (Persen - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -663,8 +634,8 @@ elif page == "Hasil Analisa Stock":
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['AVG WMA', 'AVG Mean', 'Total Kuantitas'] +
-                        ['Max_Kategori_Kota (WMA)'] +
-                        ['Kategori ABC (Persen - WMA)', 'Kategori ABC (Benchmark - WMA)'] +
+                        # [DIHAPUS] Benchmark cols
+                        ['Kategori ABC (Persen - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -828,53 +799,18 @@ elif page == "Hasil Analisa ABC":
                 
             return pd.concat(abc_results, ignore_index=True) if abc_results else pd.DataFrame()
 
-        # Metode 2: Benchmark Kategori (A, B, C, D, E)
-        def classify_abc_benchmark(df_grouped, metric_col):
-            df = df_grouped.copy()
-            if 'Kategori Barang' not in df.columns:
-                st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
-                df[f'Kategori ABC (Benchmark - {metric_col.replace("AVG ", "")})'] = 'N/A'
-                return df
-            
-            # Buat nama kolom unik
-            kategori_col_name = f'Kategori ABC (Benchmark - {metric_col.replace("AVG ", "")})'
-            max_col_name = f'Max_Kategori_Kota ({metric_col.replace("AVG ", "")})'
-            
-            df[max_col_name] = df.groupby(['City', 'Kategori Barang'])[metric_col].transform('max')
-            
-            def apply_category(row):
-                metric = row[metric_col]
-                max_val = row[max_col_name]
-                
-                if metric <= 0:
-                    return 'E'
-                if max_val == 0: 
-                    return 'D' 
-                
-                kuartal_1 = max_val * 0.75
-                kuartal_2 = max_val * 0.50
-                kuartal_3 = max_val * 0.25
-
-                if metric > kuartal_1:
-                    return 'A'
-                elif metric > kuartal_2:
-                    return 'B'
-                elif metric > kuartal_3:
-                    return 'C'
-                else: 
-                    return 'D'
-                    
-            df[kategori_col_name] = df.apply(apply_category, axis=1)
-            return df
+        # [DIHAPUS] Fungsi classify_abc_benchmark
+        # def classify_abc_benchmark(df_grouped, metric_col):
+        #    ...
 
         # --- Fungsi Highlighting (tetap sama, akan kita panggil 4x) ---
         def highlight_kategori_abc_persen(val): # A, B, C, D
             warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da'}
             return f'background-color: {warna.get(val, "")}'
         
-        def highlight_kategori_abc_benchmark(val): # A, B, C, D, E
-            warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da', 'E': '#e9ecef'}
-            return f'background-color: {warna.get(val, "")}'
+        # [DIHAPUS] Fungsi highlight_kategori_abc_benchmark
+        # def highlight_kategori_abc_benchmark(val): # A, B, C, D, E
+        #    ...
 
         # --- Validasi Data ---
         if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
@@ -937,8 +873,10 @@ elif page == "Hasil Analisa ABC":
         )
 
         # --- Tombol Eksekusi ---
-        if st.button("Jalankan Analisa ABC (4 Metode)"):
-            with st.spinner("Melakukan perhitungan analisis ABC (4 Metode)..."):
+        # [PERUBAHAN] Mengubah nama tombol
+        if st.button("Jalankan Analisa ABC (2 Metode)"):
+            # [PERUBAHAN] Mengubah spinner
+            with st.spinner("Melakukan perhitungan analisis ABC (2 Metode)..."):
                 
                 # --- [BARU] Logika Perhitungan Metrik ---
                 end_date_dt = pd.to_datetime(end_date_input)
@@ -982,7 +920,7 @@ elif page == "Hasil Analisa ABC":
                 grouped['AVG Mean'] = (grouped['Penjualan Bln 1'] + grouped['Penjualan Bln 2'] + grouped['Penjualan Bln 3']) / 3
                 grouped['AVG WMA'] = (grouped['Penjualan Bln 1'] * 0.5) + (grouped['Penjualan Bln 2'] * 0.3) + (grouped['Penjualan Bln 3'] * 0.2)
                 
-                # --- [BARU] Jalankan 4 Metode Analisis ---
+                # --- [DIHAPUS] Jalankan 4 Metode Analisis ---
                 
                 # 1. Persen - Mean
                 result_persen_mean = classify_abc_dynamic(grouped.copy(), metric_col='AVG Mean')
@@ -990,11 +928,11 @@ elif page == "Hasil Analisa ABC":
                 # 2. Persen - WMA
                 result_persen_wma = classify_abc_dynamic(grouped.copy(), metric_col='AVG WMA')
                 
-                # 3. Benchmark - Mean
-                result_bench_mean = classify_abc_benchmark(grouped.copy(), metric_col='AVG Mean')
+                # [DIHAPUS] Benchmark - Mean
+                # result_bench_mean = classify_abc_benchmark(grouped.copy(), metric_col='AVG Mean')
                 
-                # 4. Benchmark - WMA
-                result_bench_wma = classify_abc_benchmark(grouped.copy(), metric_col='AVG WMA')
+                # [DIHAPUS] Benchmark - WMA
+                # result_bench_wma = classify_abc_benchmark(grouped.copy(), metric_col='AVG WMA')
                 
                 # --- [PERBAIKAN] Gabungkan Semua Hasil ---
                 
@@ -1019,33 +957,34 @@ elif page == "Hasil Analisa ABC":
                     how='left'
                 )
                 
-                # Gabungkan hasil 3 (hanya kolom unik + kunci merge)
-                cols_to_keep_3 = merge_keys + [col for col in result_bench_mean.columns if 'Benchmark - Mean' in col or 'Max_Kategori_Kota (Mean)' in col]
-                result_final = pd.merge(
-                    result_final,
-                    result_bench_mean[cols_to_keep_3],
-                    on=merge_keys,
-                    how='left'
-                )
+                # [DIHAPUS] Merge Benchmark - Mean
+                # cols_to_keep_3 = merge_keys + [col for col in result_bench_mean.columns if 'Benchmark - Mean' in col or 'Max_Kategori_Kota (Mean)' in col]
+                # result_final = pd.merge(
+                #     result_final,
+                #     result_bench_mean[cols_to_keep_3],
+                #     on=merge_keys,
+                #     how='left'
+                # )
                 
-                # Gabungkan hasil 4 (hanya kolom unik + kunci merge)
-                cols_to_keep_4 = merge_keys + [col for col in result_bench_wma.columns if 'Benchmark - WMA' in col or 'Max_Kategori_Kota (WMA)' in col]
-                result_final = pd.merge(
-                    result_final,
-                    result_bench_wma[cols_to_keep_4],
-                    on=merge_keys,
-                    how='left'
-                )
+                # [DIHAPUS] Merge Benchmark - WMA
+                # cols_to_keep_4 = merge_keys + [col for col in result_bench_wma.columns if 'Benchmark - WMA' in col or 'Max_Kategori_Kota (WMA)' in col]
+                # result_final = pd.merge(
+                #     result_final,
+                #     result_bench_wma[cols_to_keep_4],
+                #     on=merge_keys,
+                #     how='left'
+                # )
 
                 # [REVISI] Bulatkan semua metrik numerik
-                metric_cols = ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA', 'Max_Kategori_Kota (Mean)', 'Max_Kategori_Kota (WMA)']
+                metric_cols = ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA']
+                # [DIHAPUS] Benchmark cols dari metric_cols
                 
                 for col in metric_cols:
                     if col in result_final.columns:
                          result_final[col] = result_final[col].round(0).astype(int)
                 
                 st.session_state.abc_analysis_result = result_final.copy()
-                st.success("Analisis ABC (4 Metode) berhasil dijalankan!")
+                st.success("Analisis ABC (2 Metode) berhasil dijalankan!")
         
         # --- [MODIFIKASI] Tampilan Hasil ---
         if st.session_state.abc_analysis_result is not None:
@@ -1079,10 +1018,12 @@ elif page == "Hasil Analisa ABC":
                         'AVG Mean', 'AVG WMA',
                         # Kolom Analisa (paling kanan)
                         'Kategori ABC (Persen - Mean)', 'Kategori ABC (Persen - WMA)',
-                        'Kategori ABC (Benchmark - Mean)', 'Kategori ABC (Benchmark - WMA)',
+                        # [DIHAPUS] Benchmark cols
+                        # 'Kategori ABC (Benchmark - Mean)', 'Kategori ABC (Benchmark - WMA)',
                         # Kolom pendukung (opsional, bisa di-hide jika terlalu ramai)
                         '% Kontribusi (Persen - Mean)', '% Kontribusi (Persen - WMA)',
-                        'Max_Kategori_Kota (Mean)', 'Max_Kategori_Kota (WMA)'
+                        # [DIHAPUS] Benchmark cols
+                        # 'Max_Kategori_Kota (Mean)', 'Max_Kategori_Kota (WMA)'
                     ]
                     display_cols = [col for col in display_cols_order if col in city_df.columns]
                     df_city_display = city_df[display_cols]
@@ -1099,14 +1040,15 @@ elif page == "Hasil Analisa ABC":
                             else:
                                 format_dict_abc_kota[col_name] = '{:.0f}'
 
-                    # [MODIFIKASI] Terapkan 4 highlight + format dinamis
+                    # [MODIFIKASI] Terapkan 2 highlight + format dinamis
                     st.dataframe(
                         df_city_display.style
                             .format(format_dict_abc_kota, na_rep='-')
                             .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - Mean)'])
-                            .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)'])
-                            .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - Mean)'])
-                            .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)']),
+                            .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)']),
+                            # [DIHAPUS] Highlight Benchmark
+                            # .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - Mean)'])
+                            # .apply(lambda x: x.map(highlight_kategori_abc_benchmark), subset=['Kategori ABC (Benchmark - WMA)']),
                         use_container_width=True
                     )
             
@@ -1115,12 +1057,11 @@ elif page == "Hasil Analisa ABC":
             with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
                 # keys sudah didefinisikan di atas
                 
-                # [BARU] Tambahkan semua kolom baru ke pivot
+                # [REVISI] Daftar kolom pivot
                 pivot_values = [
                     'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA',
                     'Kategori ABC (Persen - Mean)', 'Kategori ABC (Persen - WMA)',
-                    'Kategori ABC (Benchmark - Mean)', 'Kategori ABC (Benchmark - WMA)',
-                    'Max_Kategori_Kota (Mean)', 'Max_Kategori_Kota (WMA)' # Tambahkan Max
+                    # [DIHAPUS] Benchmark cols
                 ]
                 
                 # Pastikan hanya kolom yang ada di df yang dipivot
@@ -1155,11 +1096,12 @@ elif page == "Hasil Analisa ABC":
                 kategori_mapping = result_display[keys + ['Kategori Barang']].drop_duplicates()
                 total_abc = pd.merge(total_abc.drop(columns=['Kategori Barang'], errors='ignore'), kategori_mapping, on=keys, how='left')
 
-                # Jalankan 4 Analisa untuk 'All'
+                # Jalankan 2 Analisa untuk 'All'
                 all_persen_mean = classify_abc_dynamic(total_abc.copy(), metric_col='AVG Mean')
                 all_persen_wma = classify_abc_dynamic(total_abc.copy(), metric_col='AVG WMA')
-                all_bench_mean = classify_abc_benchmark(total_abc.copy(), metric_col='AVG Mean')
-                all_bench_wma = classify_abc_benchmark(total_abc.copy(), metric_col='AVG WMA')
+                # [DIHAPUS] Benchmark calls
+                # all_bench_mean = classify_abc_benchmark(total_abc.copy(), metric_col='AVG Mean')
+                # all_bench_wma = classify_abc_benchmark(total_abc.copy(), metric_col='AVG WMA')
 
                 # [PERBAIKAN] Pastikan kolom kunci (keys) ada untuk setiap merge
                 total_final = pd.merge(
@@ -1167,22 +1109,23 @@ elif page == "Hasil Analisa ABC":
                     all_persen_wma[keys + [col for col in all_persen_wma.columns if 'Persen - WMA' in col]], 
                     on=keys, how='left'
                 )
-                total_final = pd.merge(
-                    total_final, 
-                    all_bench_mean[keys + [col for col in all_bench_mean.columns if 'Benchmark - Mean' in col or 'Max_Kategori_Kota (Mean)' in col]], 
-                    on=keys, how='left'
-                )
-                total_final = pd.merge(
-                    total_final, 
-                    all_bench_wma[keys + [col for col in all_bench_wma.columns if 'Benchmark - WMA' in col or 'Max_Kategori_Kota (WMA)' in col]], 
-                    on=keys, how='left'
-                )
+                # [DIHAPUS] Merge Benchmark
+                # total_final = pd.merge(
+                #     total_final, 
+                #     all_bench_mean[keys + [col for col in all_bench_mean.columns if 'Benchmark - Mean' in col or 'Max_Kategori_Kota (Mean)' in col]], 
+                #     on=keys, how='left'
+                # )
+                # total_final = pd.merge(
+                #     total_final, 
+                #     all_bench_wma[keys + [col for col in all_bench_wma.columns if 'Benchmark - WMA' in col or 'Max_Kategori_Kota (WMA)' in col]], 
+                #     on=keys, how='left'
+                # )
 
-                # [REVISI] Bulatkan Max_Kategori di total_final
-                max_cols_total = ['Max_Kategori_Kota (Mean)', 'Max_Kategori_Kota (WMA)']
-                for col in max_cols_total:
-                    if col in total_final.columns:
-                        total_final[col] = total_final[col].round(0).astype(int)
+                # [DIHAPUS] Bulatkan Max_Kategori di total_final
+                # max_cols_total = ['Max_Kategori_Kota (Mean)', 'Max_Kategori_Kota (WMA)']
+                # for col in max_cols_total:
+                #     if col in total_final.columns:
+                #         total_final[col] = total_final[col].round(0).astype(int)
 
                 # Rename kolom 'All'
                 total_final.columns = [f"All_{col}" if col not in keys else col for col in total_final.columns]
@@ -1251,10 +1194,10 @@ elif page == "Hasil Analisa ABC":
         if 'abc_analysis_result' in st.session_state and st.session_state.abc_analysis_result is not None:
             result_display_dash = st.session_state.abc_analysis_result.copy()
             
-            # [BARU] Pilihan 4 Metode Dashboard
+            # [PERUBAHAN] Mengubah pilihan selectbox
             metode_dashboard = st.selectbox(
                 "Pilih Metode ABC untuk Dashboard:",
-                ("Persen - WMA", "Persen - Mean", "Benchmark - WMA", "Benchmark - Mean")
+                ("Persen - WMA", "Persen - Mean") # <-- Hanya 2 opsi
             )
             
             # Tentukan kolom dan metrik berdasarkan pilihan
@@ -1269,7 +1212,7 @@ elif page == "Hasil Analisa ABC":
                     'C': ("Produk Kelas C", "{:.1f}% Penjualan"),
                     'D': ("Produk Kelas D", "Tidak Terjual")
                 }
-            elif metode_dashboard == "Persen - Mean":
+            elif metode_dashboard == "Persen - Mean": # [PERUBAHAN] Menjadi elif
                 kategori_col = 'Kategori ABC (Persen - Mean)'
                 metric_col = 'AVG Mean'
                 kategori_labels = ['A', 'B', 'C', 'D']
@@ -1280,30 +1223,11 @@ elif page == "Hasil Analisa ABC":
                     'C': ("Produk Kelas C", "{:.1f}% Penjualan"),
                     'D': ("Produk Kelas D", "Tidak Terjual")
                 }
-            elif metode_dashboard == "Benchmark - WMA":
-                kategori_col = 'Kategori ABC (Benchmark - WMA)'
-                metric_col = 'AVG WMA'
-                kategori_labels = ['A', 'B', 'C', 'D', 'E']
-                colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da', '#e9ecef']
-                metric_labels = {
-                    'A': ("Produk Kelas A", "{:.1f}% Penjualan"),
-                    'B': ("Produk Kelas B", "{:.1f}% Penjualan"),
-                    'C': ("Produk Kelas C", "{:.1f}% Penjualan"),
-                    'D': ("Produk Kelas D", "{:.1f}% Penjualan"), 
-                    'E': ("Produk Kelas E", "Tidak Terjual")
-                }
-            else: # Benchmark - Mean
-                kategori_col = 'Kategori ABC (Benchmark - Mean)'
-                metric_col = 'AVG Mean'
-                kategori_labels = ['A', 'B', 'C', 'D', 'E']
-                colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da', '#e9ecef']
-                metric_labels = {
-                    'A': ("Produk Kelas A", "{:.1f}% Penjualan"),
-                    'B': ("Produk Kelas B", "{:.1f}% Penjualan"),
-                    'C': ("Produk Kelas C", "{:.1f}% Penjualan"),
-                    'D': ("Produk Kelas D", "{:.1f}% Penjualan"), 
-                    'E': ("Produk Kelas E", "Tidak Terjual")
-                }
+            # [DIHAPUS] Blok Benchmark
+            # elif metode_dashboard == "Benchmark - WMA":
+            #    ...
+            # else: # Benchmark - Mean
+            #    ...
 
             if not result_display_dash.empty:
                 # Grup berdasarkan kolom yang dipilih dan gunakan metrik yang sesuai
@@ -1564,5 +1488,3 @@ elif page == "Hasil Analisis Margin":
     
     elif 'df_portal' in st.session_state and not st.session_state.df_portal.empty:
         st.info("Data portal telah dimuat. Klik tombol 'Muat & Analisa Data Margin' di atas untuk melihat hasilnya.")
-
-
