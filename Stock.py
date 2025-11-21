@@ -410,6 +410,31 @@ elif page == "Hasil Analisa Stock":
         if 'No. Barang' in df.columns:
             df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
 
+    # [DITAMBAHKAN] PREPROCESSING: DETEKSI DAN HAPUS DUPLIKAT
+    if 'No. Faktur' in penjualan.columns and 'No. Barang' in penjualan.columns:
+        # Konversi No. Faktur ke string dan bersihkan
+        penjualan['No. Faktur'] = penjualan['No. Faktur'].astype(str).str.strip()
+        
+        # Buat kolom kunci duplikat
+        penjualan['Faktur + Barang'] = penjualan['No. Faktur'] + penjualan['No. Barang']
+        
+        # Deteksi duplikat (baris yang duplikat)
+        duplicates = penjualan[penjualan.duplicated(subset=['Faktur + Barang'], keep=False)].sort_values(by=['Faktur + Barang', 'Tgl Faktur'])
+        
+        # Hapus duplikat (pertahankan baris pertama)
+        penjualan.drop_duplicates(subset=['Faktur + Barang'], keep='first', inplace=True)
+        
+        if not duplicates.empty:
+            # Identifikasi baris yang dihapus (duplikat yang bukan yang pertama)
+            deleted_duplicates = duplicates[~duplicates.index.isin(penjualan.index)]
+            st.warning(f"⚠️ Ditemukan dan dihapus {len(deleted_duplicates)} baris duplikat berdasarkan 'Faktur + Barang'.")
+            with st.expander("Lihat Detail Duplikat yang Dihapus"):
+                st.dataframe(deleted_duplicates)
+        else:
+             st.info("✅ Tidak ada duplikat 'Faktur + Barang' yang ditemukan.")
+    # [AKHIR DETEKSI DUPLIKAT]
+
+
     penjualan.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
     penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
     penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
