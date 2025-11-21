@@ -424,6 +424,9 @@ elif page == "Hasil Analisa Stock":
         # Hapus duplikat (pertahankan baris pertama)
         penjualan.drop_duplicates(subset=['Faktur + Barang'], keep='first', inplace=True)
         
+        # --- FIX: SIMPAN DATA BERSIH KEMBALI KE SESSION STATE ---
+        st.session_state.df_penjualan = penjualan.copy()
+        
         if not duplicates.empty:
             # Identifikasi baris yang dihapus (duplikat yang bukan yang pertama)
             deleted_duplicates = duplicates[~duplicates.index.isin(penjualan.index)]
