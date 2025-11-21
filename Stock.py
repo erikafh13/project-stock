@@ -442,7 +442,12 @@ elif page == "Hasil Analisa Stock":
     penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
     
     with st.expander("Lihat Data Penjualan Setelah Preprocessing"):
-        st.dataframe(penjualan)
+        # [PERUBAHAN TAMPILAN] Tampilkan kolom kunci untuk verifikasi data duplikat
+        preview_cols = ['No. Faktur', 'Tgl Faktur', 'Nama Pelanggan', 'No. Barang', 'Faktur + Barang', 'Kuantitas']
+        preview_cols_filtered = [col for col in preview_cols if col in penjualan.columns]
+        
+        st.dataframe(penjualan[preview_cols_filtered].head(20), use_container_width=True) # Display top 20 rows
+        
         excel_cleaned_penjualan = convert_df_to_excel(penjualan)
         st.download_button(
             label="📥 Unduh Data Penjualan Bersih (Excel)",
