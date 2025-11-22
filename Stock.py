@@ -609,8 +609,7 @@ elif page == "Hasil Analisa Stock":
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['SO WMA', 'SO Mean', 'SO Total'] + 
-                        # ['Kategori ABC (Persen - WMA)'] + # DIHAPUS
-                        ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Kategori ABC (Log-Benchmark - WMA)'] + # [REVISI NAMA]
+                        ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Kategori ABC (Log-Benchmark - WMA)'] + 
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -668,8 +667,7 @@ elif page == "Hasil Analisa Stock":
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['SO WMA', 'SO Mean', 'SO Total'] + 
-                        # ['Kategori ABC (Persen - WMA)'] + # DIHAPUS
-                        ['Kategori ABC (Log-Benchmark - WMA)', 'Ratio Log WMA', 'Log (10) WMA', 'Avg Log WMA'] +
+                        ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Kategori ABC (Log-Benchmark - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
                     
@@ -1323,4 +1321,5 @@ elif page == "Hasil Analisis Margin":
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
     
 # =====================================================================================
+
 
