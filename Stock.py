@@ -32,7 +32,7 @@ st.sidebar.markdown("---")
 if 'df_penjualan' not in st.session_state:
     st.session_state.df_penjualan = pd.DataFrame()
 if 'produk_ref' not in st.session_state:
-    st.session_state.produk_ref = pd.DataFrame()
+    st.session_state.df_produk_ref = pd.DataFrame()
 if 'df_stock' not in st.session_state:
     st.session_state.df_stock = pd.DataFrame()
 if 'stock_filename' not in st.session_state:
