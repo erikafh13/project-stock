@@ -204,7 +204,6 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     cols_to_return = ['City', 'No. Barang', kategori_col_name, ratio_col_name, log_col_name, avg_log_col_name]
     return df
 
-
 # =====================================================================================
 #                                       ROUTING HALAMAN
 # =====================================================================================
@@ -342,6 +341,57 @@ elif page == "Hasil Analisa Stock":
         cols_to_drop = ['% kontribusi', '% Kumulatif']
         result_df.drop([col for col in cols_to_drop if col in result_df.columns], axis=1, inplace=True)
         return result_df
+
+    # [DITAMBAHKAN] Metode Log-Benchmark (A, B, C, D, E, F)
+    def classify_abc_log_benchmark(df_grouped, metric_col):
+        df = df_grouped.copy()
+        if 'Kategori Barang' not in df.columns:
+            st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
+            df[f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "")})'] = 'N/A'
+            return df
+        
+        # Buat nama kolom unik
+        kategori_col_name = f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "").replace("SO ", "")})'
+        ratio_col_name = 'Ratio Log WMA' if 'WMA' in metric_col or 'SO' in metric_col else 'Ratio Log Mean' # [REVISI NAMA]
+        log_col_name = 'Log (10)' if 'WMA' in metric_col or 'SO' in metric_col else 'Log (10) Mean' # [REVISI NAMA]
+        avg_log_col_name = 'Avg Log' if 'WMA' in metric_col or 'SO' in metric_col else 'Avg Log Mean' # [REVISI NAMA]
+        
+        # 1. Hitung Log10(metric) hanya untuk metric > 0, sisanya NaN
+        df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
+        
+        # 2. Hitung patokan (rata-rata log) per grup, abaikan NaN
+        df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
+        
+        # 3. Hitung rasio Log(WMA) / Avg_Log_WMA
+        df[ratio_col_name] = df[log_col_name] / df[avg_log_col_name]
+        
+        # Isi NaN hasil pembagian (misal 0/0 atau log/NaN) dengan 0
+        df[ratio_col_name] = df[ratio_col_name].fillna(0)
+        
+        def apply_category_log(row):
+            # 4. Kategori 'F' untuk metric <= 0
+            if row[metric_col] <= 0:
+                return 'F'
+            
+            # 5. Kategorikan sisanya (A-E) berdasarkan rasio
+            ratio = row[ratio_col_name]
+            if ratio > 2:
+                return 'A'
+            elif ratio > 1.5:
+                return 'B'
+            elif ratio > 1:
+                return 'C'
+            elif ratio > 0.5:
+                return 'D'
+            else:
+                return 'E' # Termasuk 0-0.5
+        
+        # 6. Terapkan kategori
+        df[kategori_col_name] = df.apply(apply_category_log, axis=1)
+        
+        # Hanya kembalikan kolom yang relevan
+        cols_to_return = ['City', 'No. Barang', kategori_col_name, ratio_col_name, log_col_name, avg_log_col_name]
+        return df
 
     # [DITAMBAHKAN] Highlight untuk Persen A-E
     def highlight_kategori_abc_persen(val): # A, B, C, D, E
@@ -548,7 +598,14 @@ elif page == "Hasil Analisa Stock":
                 final_result.rename(columns={'Kategori ABC': 'Kategori ABC (Persen - WMA)'}, inplace=True)
                 
                 # [DITAMBAHKAN] Jalankan ABC Log-Benchmark (A-F)
-                final_result = classify_abc_log_benchmark(final_result, metric_col='SO WMA') # Menggunakan SO WMA
+                # Ambil kolom yang sudah ada untuk merge, agar final_result tetap di update.
+                log_df = classify_abc_log_benchmark(final_result.copy(), metric_col='SO WMA')
+                final_result = pd.merge(
+                    final_result, 
+                    log_df[['City', 'No. Barang', 'Kategori ABC (Log-Benchmark - WMA)', 'Ratio Log WMA', 'Log (10)', 'Avg Log']], 
+                    on=['City', 'No. Barang'], 
+                    how='left'
+                )
 
                 # [DIHAPUS] Perhitungan Safety Stock
                 
