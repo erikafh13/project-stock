@@ -163,9 +163,9 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     kategori_col_name = f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "").replace("SO ", "")})'
     # Menggunakan nama baru sesuai permintaan user
     metric_name_suffix = metric_col.replace('AVG ', '').replace('SO ', '')
-    ratio_col_name = 'Ratio Log WMA' if 'WMA' in metric_col or 'SO' in metric_col else 'Ratio Log Mean'
-    log_col_name = 'Log (10)' if 'WMA' in metric_col or 'SO' in metric_col else 'Log (10) Mean'
-    avg_log_col_name = 'Avg Log' if 'WMA' in metric_col or 'SO' in metric_col else 'Avg Log Mean'
+    ratio_col_name = 'Ratio Log WMA' if 'WMA' in metric_col else 'Ratio Log Mean' # [REVISI NAMA]
+    log_col_name = 'Log (10)' if 'WMA' in metric_col else 'Log (10) Mean' # [REVISI NAMA]
+    avg_log_col_name = 'Avg Log' if 'WMA' in metric_col else 'Avg Log Mean' # [REVISI NAMA]
     
     # 1. Hitung Log10(metric) hanya untuk metric > 0, sisanya NaN
     df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
@@ -203,6 +203,7 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     # Hanya kembalikan kolom yang relevan
     cols_to_return = ['City', 'No. Barang', kategori_col_name, ratio_col_name, log_col_name, avg_log_col_name]
     return df
+
 
 # =====================================================================================
 #                                       ROUTING HALAMAN
@@ -317,12 +318,14 @@ elif page == "Hasil Analisa Stock":
 
     # [MODIFIKASI] Metode Persentase (A, B, C, D, E)
     def classify_abc(df_group):
-        group = df_group.sort_values(by='Total Kuantitas', ascending=False).reset_index(drop=True)
-        terjual = group[group['Total Kuantitas'] > 0].copy()
-        tidak_terjual = group[group['Total Kuantitas'] <= 0].copy()
-        total_kuantitas = terjual['Total Kuantitas'].sum()
+        # [PERBAIKAN] Mengganti 'Total Kuantitas' menjadi 'SO Total'
+        group = df_group.sort_values(by='SO Total', ascending=False).reset_index(drop=True)
+        terjual = group[group['SO Total'] > 0].copy() 
+        tidak_terjual = group[group['SO Total'] <= 0].copy() 
+        total_kuantitas = terjual['SO Total'].sum() # [PERBAIKAN]
+        
         if total_kuantitas > 0:
-            terjual['% kontribusi'] = 100 * terjual['Total Kuantitas'] / total_kuantitas
+            terjual['% kontribusi'] = 100 * terjual['SO Total'] / total_kuantitas # [PERBAIKAN]
             terjual['% Kumulatif'] = terjual['% kontribusi'].cumsum()
             # [PERUBAHAN DARI USER] A=50, B=75, C=90, D=100
             terjual['Kategori ABC'] = terjual['% Kumulatif'].apply(lambda x: 'A' if x <= 50 else ('B' if x <= 75 else ('C' if x <= 90 else 'D')))
