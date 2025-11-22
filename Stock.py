@@ -140,7 +140,7 @@ def map_city(nama_dept):
 @st.cache_data
 def convert_df_to_excel(df):
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openypxl') as writer:
+    with pd.ExcelWriter(output, engine='openpyxl') as writer: # <-- KOREKSI 'openpyxl'
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     processed_data = output.getvalue()
     return processed_data
@@ -157,13 +157,12 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     # Buat nama kolom unik
     kategori_col_name = f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "").replace("SO ", "")})'
     metric_name_suffix = metric_col.replace('AVG ', '').replace('SO ', '')
-    # Menggunakan nama baru sesuai permintaan user
+    # Menggunakan nama baru yang konsisten
     ratio_col_name = f'Ratio Log {metric_name_suffix}'
     log_col_name = f'Log (10) {metric_name_suffix}'
     avg_log_col_name = f'Avg Log {metric_name_suffix}'
     
     # 1. Hitung Log10(metric) hanya untuk metric > 0, sisanya NaN
-    # PENTING: Menggunakan np.log10 (Log basis 10)
     df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
     
     # 2. Hitung patokan (rata-rata log) per grup, abaikan NaN
@@ -308,8 +307,6 @@ elif page == "Hasil Analisa Stock":
         wma = (sales_last_30_days * 0.5) + (sales_31_to_60_days * 0.3) + (sales_61_to_90_days * 0.2)
         return wma
 
-    # [DIHAPUS] Metode Persentase classify_abc(df_group)
-
     # [DIPERTAHANKAN] Highlight untuk Log A-F
     def highlight_kategori_abc_log(val): # A, B, C, D, E, F
         warna = {
@@ -369,7 +366,7 @@ elif page == "Hasil Analisa Stock":
         st.stop()
 
     penjualan = st.session_state.df_penjualan.copy()
-    produk_ref = st.session_state.produk_ref.copy()
+    produk_ref = st.session_state.df_produk_ref.copy()
     df_stock = st.session_state.df_stock.copy()
 
     for df in [penjualan, produk_ref, df_stock]:
@@ -481,10 +478,6 @@ elif page == "Hasil Analisa Stock":
                 # [REVISI] SO Total dihitung dari SO WMA
                 full_data['SO Total'] = full_data['SO WMA'] 
                 
-                # [DIHAPUS] Logika ABC Persen
-                # final_result = full_data.groupby('City', group_keys=False).apply(classify_abc).reset_index(drop=True)
-                # final_result.rename(columns={'Kategori ABC': 'Kategori ABC (Persen - WMA)'}, inplace=True)
-                
                 final_result = full_data.copy() # Mulai dari full_data tanpa ABC Persen
                 
                 # [DIPERTAHANKAN] Jalankan ABC Log-Benchmark (A-F)
@@ -577,8 +570,6 @@ elif page == "Hasil Analisa Stock":
         st.header("Filter Hasil (Hanya untuk Tabel per Kota)")
         col_h1, col_h2 = st.columns(2)
         
-        # [REVISI] Hapus filter ABC Persen
-        
         abc_log_options = sorted(final_result_display['Kategori ABC (Log-Benchmark - WMA)'].dropna().unique().astype(str))
         selected_abc_log = col_h1.multiselect("Kategori ABC (Log-Benchmark):", abc_log_options)
         
@@ -597,7 +588,6 @@ elif page == "Hasil Analisa Stock":
                     city_df = final_result_display[final_result_display['City'] == city].copy()
                     
                     # [REVISI] Terapkan 2 filter (Log-Benchmark dan Status)
-                    # if selected_abc_persen: city_df = city_df[city_df['Kategori ABC (Persen - WMA)'].isin(selected_abc_persen)]
                     if selected_abc_log: city_df = city_df[city_df['Kategori ABC (Log-Benchmark - WMA)'].isin(selected_abc_log)]
                     if selected_status: city_df = city_df[city_df['Status Stock'].isin(selected_status)]
                     
@@ -605,13 +595,13 @@ elif page == "Hasil Analisa Stock":
                         st.write("Tidak ada data yang cocok dengan filter yang dipilih.")
                         continue
                     
-                    # [REVISI] Tentukan urutan kolom sesuai permintaan (tanpa Persen ABC)
+                    # [REVISI] Tentukan urutan kolom sesuai permintaan (Halaman Stock)
                     keys_base = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
                     metric_order_kota = (
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['SO WMA', 'SO Mean', 'SO Total'] + 
-                        # [PENTING] Menggunakan urutan kolom baru dari user: Log, Avg Log, Ratio, Kategori
+                        # URUTAN BARU: Log, Avg Log, Ratio, Kategori
                         ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Kategori ABC (Log-Benchmark - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
@@ -634,7 +624,6 @@ elif page == "Hasil Analisa Stock":
                     # [REVISI] Terapkan 2 highlight (Log ABC dan Status)
                     st.dataframe(
                         city_df_display.style.format(format_dict_kota, na_rep='-') 
-                                        # .apply(lambda x: x.map(highlight_kategori_abc_persen), subset=['Kategori ABC (Persen - WMA)']) # DIHAPUS
                                         .apply(lambda x: x.map(highlight_kategori_abc_log), subset=['Kategori ABC (Log-Benchmark - WMA)'])
                                         .apply(lambda x: x.map(highlight_status_stock), subset=['Status Stock'])
                                         .set_table_styles([header_style]), 
@@ -648,13 +637,12 @@ elif page == "Hasil Analisa Stock":
                 else:
                     keys = ['No. Barang', 'Kategori Barang', 'BRAND Barang', 'Nama Barang']
                     
-                    # [REVISI] Daftar kolom pivot sesuai urutan (tanpa Persen ABC)
+                    # [REVISI] Daftar kolom pivot sesuai urutan (Halaman Stock)
                     pivot_cols = (
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['SO WMA', 'SO Mean', 'SO Total'] + 
-                        # ['Kategori ABC (Persen - WMA)'] + # DIHAPUS
-                        # [PENTING] Menggunakan urutan kolom baru dari user: Log, Avg Log, Ratio, Kategori
+                        # URUTAN BARU: Log, Avg Log, Ratio, Kategori
                         ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Kategori ABC (Log-Benchmark - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
@@ -666,12 +654,11 @@ elif page == "Hasil Analisa Stock":
                     pivot_result.reset_index(inplace=True)
                     cities = sorted(final_result_display['City'].unique())
                     
-                    # [REVISI] Urutan metrik sesuai urutan (tanpa Persen ABC)
+                    # [REVISI] Urutan metrik sesuai urutan (Halaman Stock)
                     metric_order = (
                         bulan_cols + 
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['SO WMA', 'SO Mean', 'SO Total'] + 
-                        # ['Kategori ABC (Persen - WMA)'] + # DIHAPUS
                         ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Kategori ABC (Log-Benchmark - WMA)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
@@ -798,14 +785,12 @@ elif page == "Hasil Analisa ABC":
     tab1_abc, tab2_abc = st.tabs(["Hasil Tabel", "Dashboard"])
 
     with tab1_abc:
-        # [DIHAPUS] Metode 1: Persentase (classify_abc_dynamic)
-
         # [DIPERTAHANKAN] Metode 3: Log-Benchmark (A, B, C, D, E, F)
         def classify_abc_log_benchmark(df_grouped, metric_col):
             df = df_grouped.copy()
             if 'Kategori Barang' not in df.columns:
                 st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
-                df[f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "")})'] = 'N/A'
+                df[f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "").replace("SO ", "")})'] = 'N/A'
                 return df
             
             # Buat nama kolom unik
@@ -853,7 +838,6 @@ elif page == "Hasil Analisa ABC":
 
 
         # --- Fungsi Highlighting ---
-        # [DIHAPUS] highlight_kategori_abc_persen
         
         # [DIPERTAHANKAN] Highlight untuk A-F
         def highlight_kategori_abc_log(val): # A, B, C, D, E, F
@@ -867,13 +851,13 @@ elif page == "Hasil Analisa ABC":
 
 
         # --- Validasi Data ---
-        if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
+        if st.session_state.df_penjualan.empty or st.session_state.df_produk_ref.empty:
             st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
             
         # --- Preprocessing Data ---
         all_so_df = st.session_state.df_penjualan.copy()
-        produk_ref = st.session_state.produk_ref.copy()
+        produk_ref = st.session_state.df_produk_ref.copy()
         for df in [all_so_df, produk_ref]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
@@ -979,7 +963,6 @@ elif page == "Hasil Analisa ABC":
                 result_final = result_log_bench_mean.copy()
 
                 # Gabungkan hasil WMA (hanya kolom unik Log-Benchmark + kunci merge)
-                # PENTING: Menggunakan nama kolom yang diseragamkan: Log (10) dan Avg Log
                 cols_to_keep_wma = merge_keys + [col for col in result_log_bench_wma.columns if 'Log-Benchmark - WMA' in col or 'Log (10) WMA' in col or 'Avg Log WMA' in col or 'Ratio Log WMA' in col]
                 result_final = pd.merge(
                     result_final,
@@ -997,11 +980,10 @@ elif page == "Hasil Analisa ABC":
 
                 # [DIPERTAHANKAN] Bulatkan kolom log/ratio ke 2 desimal (FLOAT)
                 metric_cols_float = [
-                    'Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', # <-- PENTING: NAMA BARU
-                    'Log (10) Mean', 'Avg Log Mean', 'Ratio Log Mean' # <-- PENTING: NAMA BARU
+                    'Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA',
+                    'Log (10) Mean', 'Avg Log Mean', 'Ratio Log Mean'
                 ]
                 for col in metric_cols_float:
-                    # Mengganti 'Log (WMA)' dll. menjadi 'Log (10) WMA' dll.
                     if col in result_final.columns:
                         result_final[col] = result_final[col].round(2)
                 
@@ -1034,7 +1016,6 @@ elif page == "Hasil Analisa ABC":
                     city_df = result_display[result_display['City'] == city]
                     
                     # [REVISI] Urutan kolom baru (HANYA Log-Benchmark)
-                    # MENGGUNAKAN NAMA KOLOM BARU YANG DISERAGAMKAN
                     display_cols_order = [
                         'No. Barang', 'BRAND Barang', 'Nama Barang', 'Kategori Barang', 
                         'AVG Mean', 'AVG WMA',
@@ -1078,7 +1059,6 @@ elif page == "Hasil Analisa ABC":
             with st.spinner("Membuat tabel pivot gabungan untuk ABC..."):
                 
                 # [REVISI] Daftar kolom pivot (HANYA Log-Benchmark)
-                # MENGGUNAKAN NAMA KOLOM BARU YANG DISERAGAMKAN
                 pivot_values = [
                     'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA',
                     'Kategori ABC (Log-Benchmark - Mean)', 
@@ -1126,7 +1106,6 @@ elif page == "Hasil Analisa ABC":
                 total_final = total_final.drop(columns=['City'], errors='ignore')
                 
                 # Merge Log-Benchmark 'All' (Mean)
-                # MENGGUNAKAN NAMA KOLOM BARU YANG DISERAGAMKAN
                 total_final = pd.merge(
                     total_final, 
                     all_log_bench_mean[keys + [col for col in all_log_bench_mean.columns if 'Log-Benchmark - Mean' in col or 'Log (10) Mean' in col or 'Avg Log Mean' in col or 'Ratio Log Mean' in col]], 
@@ -1134,7 +1113,6 @@ elif page == "Hasil Analisa ABC":
                 )
                 
                 # Merge Log-Benchmark 'All' (WMA)
-                # MENGGUNAKAN NAMA KOLOM BARU YANG DISERAGAMKAN
                 total_final = pd.merge(
                     total_final, 
                     all_log_bench_wma[keys + [col for col in all_log_bench_wma.columns if 'Log-Benchmark - WMA' in col or 'Log (10) WMA' in col or 'Avg Log WMA' in col or 'Ratio Log WMA' in col]], 
