@@ -805,7 +805,7 @@ elif page == "Hasil Analisa ABC":
             # Buat nama kolom unik
             kategori_col_name = f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "").replace("SO ", "")})'
             metric_name_suffix = metric_col.replace('AVG ', '').replace('SO ', '')
-            # Menggunakan penamaan konsisten dengan Halaman Stock: Log (10) dan Avg Log
+            # Menggunakan nama baru yang konsisten
             ratio_col_name = f'Ratio Log {metric_name_suffix}'
             log_col_name = f'Log (10) {metric_name_suffix}'
             avg_log_col_name = f'Avg Log {metric_name_suffix}'
@@ -987,7 +987,7 @@ elif page == "Hasil Analisa ABC":
                     # Ambil nilai Avg Log WMA yang dihitung Python
                     avg_log_wma_py = df_debug['Avg Log WMA'].iloc[0]
                     
-                    # Hitung jumlah produk aktif yang masuk rata-rata (Log (10) WMA bukan NaN)
+                    # Hitung jumlah produk aktif yang masuk rata-rata (Log > 0) yang bukan NaN
                     active_count = df_debug['Log (10) WMA'].dropna().shape[0]
 
                     st.error("⚠️ HASIL DEBUGGING: Kelompok 'MONITOR L - SURABAYA' (Hapus kode ini setelah selesai debugging)")
@@ -1250,8 +1250,7 @@ elif page == "Hasil Analisa ABC":
                 kategori_col = 'Kategori ABC (Log-Benchmark - WMA)'
                 metric_col = 'AVG WMA'
                 kategori_labels = ['A', 'B', 'C', 'D', 'E', 'F']
-                colors = ['#cce5ff', '#d4edda', 'C': '#fff3cd', 
-                'D': '#f8d7da', 'E': '#e9ecef', 'F': '#6c757d']
+                colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da', '#e9ecef', '#6c757d']
                 # [REVISI] Menggunakan Avg/Mean/WMA dari kolom metric_col
                 metric_labels = {
                     'A': ("Produk Kelas A", "{:.1f} Rata-rata Penjualan"), 
@@ -1345,7 +1344,7 @@ elif page == "Hasil Analisa ABC":
                     city_sales = result_display_dash.groupby('City')[metric_col].sum().sort_values(ascending=False)
                     st.bar_chart(city_sales)
             else:
-                st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
+                st.info("Tidak ada data untuk ditampilkan di dashboard. Sesuaikan filter Anda.")
         else:
             st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
 
