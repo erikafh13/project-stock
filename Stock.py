@@ -393,7 +393,15 @@ elif page == "Hasil Analisa Stock":
     penjualan.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
     penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
     penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
+    
+    # --- CLEANING KATEGORI BARANG DAN CITY UNTUK GROUPING ---
     produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
+    if 'Kategori Barang' in produk_ref.columns:
+        produk_ref['Kategori Barang'] = produk_ref['Kategori Barang'].astype(str).str.strip().str.upper()
+    if 'City' in penjualan.columns:
+        penjualan['City'] = penjualan['City'].astype(str).str.strip().str.upper()
+    # --------------------------------------------------------
+    
     penjualan['Tgl Faktur'] = pd.to_datetime(penjualan['Tgl Faktur'], errors='coerce')
     
     with st.expander("Lihat Data Penjualan Setelah Preprocessing"):
@@ -482,7 +490,7 @@ elif page == "Hasil Analisa Stock":
                 
                 final_result = full_data.copy() # Mulai dari full_data tanpa ABC Persen
                 
-                # [DIPERTAHANKAN] Jalankan ABC Log-Benchmark (A-F)
+                # [DIPERTAHINKAN] Jalankan ABC Log-Benchmark (A-F)
                 log_df = classify_abc_log_benchmark(final_result.copy(), metric_col='SO WMA')
                 final_result = pd.merge(
                     final_result, 
@@ -552,7 +560,7 @@ elif page == "Hasil Analisa Stock":
 
     if st.session_state.stock_analysis_result is not None:
         final_result_to_filter = st.session_state.stock_analysis_result.copy()
-        final_result_to_filter = final_result_to_filter[final_result_to_filter['City'] != 'Others']
+        final_result_to_filter = final_result_to_filter[final_result_to_filter['City'] != 'OTHERS'] # Casing sekarang UPPER
         bulan_cols = st.session_state.get('bulan_columns_stock', [])
         
         st.markdown("---")
@@ -677,7 +685,7 @@ elif page == "Hasil Analisa Stock":
                     # [REVISI] Gunakan Log-Benchmark untuk Total
                     all_sales_for_abc = total_agg.copy()
                     all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
-                    all_sales_for_abc['City'] = 'All' # Dummy city untuk fungsi classify_abc_log_benchmark
+                    all_sales_for_abc['City'] = 'ALL' # Casing UPPER
                     all_classified = classify_abc_log_benchmark(all_sales_for_abc, metric_col='Total Kuantitas') 
                     all_classified.rename(columns={'Kategori ABC (Log-Benchmark - Total Kuantitas)': 'All_Kategori ABC All'}, inplace=True)
                     
@@ -869,6 +877,14 @@ elif page == "Hasil Analisa ABC":
         so_df.rename(columns={'Qty': 'Kuantitas'}, inplace=True, errors='ignore')
         so_df['Nama Dept'] = so_df.apply(map_nama_dept, axis=1)
         so_df['City'] = so_df['Nama Dept'].apply(map_city)
+        
+        # --- CLEANING KATEGORI BARANG DAN CITY UNTUK GROUPING ---
+        if 'Kategori Barang' in produk_ref.columns:
+            produk_ref['Kategori Barang'] = produk_ref['Kategori Barang'].astype(str).str.strip().str.upper()
+        if 'City' in so_df.columns:
+            so_df['City'] = so_df['City'].astype(str).str.strip().str.upper()
+        # --------------------------------------------------------
+
         so_df['Tgl Faktur'] = pd.to_datetime(so_df['Tgl Faktur'], dayfirst=True, errors='coerce')
         so_df.dropna(subset=['Tgl Faktur'], inplace=True)
 
@@ -997,7 +1013,7 @@ elif page == "Hasil Analisa ABC":
         # --- [MODIFIKASI] Tampilan Hasil ---
         if st.session_state.abc_analysis_result is not None:
             result_display = st.session_state.abc_analysis_result.copy()
-            result_display = result_display[result_display['City'] != 'Others']
+            result_display = result_display[result_display['City'] != 'OTHERS'] # Casing sekarang UPPER
             
             # Filter (tidak berubah)
             st.header("Filter Hasil Analisis")
@@ -1099,7 +1115,7 @@ elif page == "Hasil Analisa ABC":
                     if col in total_abc.columns:
                         total_abc[col] = total_abc[col].round(0).astype(int)
 
-                total_abc['City'] = 'All' 
+                total_abc['City'] = 'ALL' # Casing UPPER
                 
                 # Jalankan HANYA Log-Benchmark untuk 'All'
                 all_log_bench_mean = classify_abc_log_benchmark(total_abc.copy(), metric_col='AVG Mean')
