@@ -165,9 +165,8 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     # 1. Hitung Log10(metric) hanya untuk metric > 0, sisanya NaN
     df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
     
-    # === KOREKSI LOGIKA RATA-RATA: Mengembalikan ke Standar Analytics (Mengabaikan NaN) ===
     # 2. Hitung patokan (rata-rata log) per grup. 
-    #    .transform('mean') secara default mengabaikan NaN, sehingga hanya produk SO WMA > 0 yang masuk perhitungan rata-rata.
+    #    transform('mean') secara default mengabaikan NaN, sehingga hanya produk SO WMA > 0 yang masuk perhitungan rata-rata.
     df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
     
     # 3. Hitung rasio Log(metric) / Avg_Log_metric
@@ -490,7 +489,7 @@ elif page == "Hasil Analisa Stock":
                 
                 final_result = full_data.copy() # Mulai dari full_data tanpa ABC Persen
                 
-                # [DIPERTAHINKAN] Jalankan ABC Log-Benchmark (A-F)
+                # [DIPERTAHANKAN] Jalankan ABC Log-Benchmark (A-F)
                 log_df = classify_abc_log_benchmark(final_result.copy(), metric_col='SO WMA')
                 final_result = pd.merge(
                     final_result, 
@@ -511,7 +510,7 @@ elif page == "Hasil Analisa Stock":
                 stock_df_raw = df_stock.rename(columns=lambda x: x.strip())
                 stok_columns = [col for col in stock_df_raw.columns if col not in ['No. Barang', 'Keterangan Barang']]
                 stock_melted_list = []
-                city_prefix_map = {'Surabaya': ['A - ITC', 'AT - TRANSIT ITC', 'C', 'C6', 'CT - TRANSIT PUSAT', 'Y - SBY', 'Y3 - Display Y', 'YT - TRANSIT Y'],'Jakarta': ['B', 'BT - TRANSIT JKT'],'Semarang': ['D - SMG', 'DT - TRANSIT SMG'],'Jogja': ['E - JOG', 'ET - TRANSIT JOG'],'Malang': ['F - MLG', 'FT - TRANSIT MLG'],'Bali': ['H - BALI', 'HT - TRANSIT BALI']}
+                city_prefix_map = {'SURABAYA': ['A - ITC', 'AT - TRANSIT ITC', 'C', 'C6', 'CT - TRANSIT PUSAT', 'Y - SBY', 'Y3 - Display Y', 'YT - TRANSIT Y'],'JAKARTA': ['B', 'BT - TRANSIT JKT'],'SEMARANG': ['D - SMG', 'DT - TRANSIT SMG'],'JOGJA': ['E - JOG', 'ET - TRANSIT JOG'],'MALANG': ['F - MLG', 'FT - TRANSIT MLG'],'BALI': ['H - BALI', 'HT - TRANSIT BALI']}
                 for city_name, prefixes in city_prefix_map.items():
                     city_cols = [col for col in stok_columns if any(col.startswith(p) for p in prefixes)]
                     if not city_cols: continue
@@ -527,7 +526,7 @@ elif page == "Hasil Analisa Stock":
                 
                 final_result['Add Stock'] = final_result.apply(lambda row: max(0, row['Min Stock'] - row['Stock Cabang']), axis=1)
                 
-                stock_surabaya = stock_melted[stock_melted['City'] == 'Surabaya'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
+                stock_surabaya = stock_melted[stock_melted['City'] == 'SURABAYA'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
                 stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
                 suggest_po_all_df = final_result.groupby('No. Barang')['Add Stock'].sum().reset_index(name='Suggest PO All')
                 
@@ -815,7 +814,6 @@ elif page == "Hasil Analisa ABC":
             # PENTING: Menggunakan np.log10 (Log basis 10)
             df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
             
-            # === KOREKSI LOGIKA RATA-RATA: Mengembalikan ke Standar Analytics (Mengabaikan NaN) ===
             # 2. Hitung patokan (rata-rata log) per grup. 
             #    .transform('mean') secara default mengabaikan NaN, sehingga hanya produk SO WMA > 0 yang masuk perhitungan rata-rata.
             df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
@@ -884,7 +882,7 @@ elif page == "Hasil Analisa ABC":
         if 'City' in so_df.columns:
             so_df['City'] = so_df['City'].astype(str).str.strip().str.upper()
         # --------------------------------------------------------
-
+        
         so_df['Tgl Faktur'] = pd.to_datetime(so_df['Tgl Faktur'], dayfirst=True, errors='coerce')
         so_df.dropna(subset=['Tgl Faktur'], inplace=True)
 
@@ -1013,7 +1011,7 @@ elif page == "Hasil Analisa ABC":
         # --- [MODIFIKASI] Tampilan Hasil ---
         if st.session_state.abc_analysis_result is not None:
             result_display = st.session_state.abc_analysis_result.copy()
-            result_display = result_display[result_display['City'] != 'OTHERS'] # Casing sekarang UPPER
+            result_display = result_display[result_display['City'] != 'OTHERS'] 
             
             # Filter (tidak berubah)
             st.header("Filter Hasil Analisis")
