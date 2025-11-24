@@ -31,7 +31,9 @@ st.sidebar.markdown("---")
 if 'df_penjualan' not in st.session_state:
     st.session_state.df_penjualan = pd.DataFrame()
 if 'produk_ref' not in st.session_state:
-    st.session_state.df_produk_ref = pd.DataFrame()
+    st.session_state.produk_ref = pd.DataFrame() # <-- KOREKSI: Gunakan 'produk_ref' saja
+# if 'df_produk_ref' in st.session_state: # BARIS LAMA DIHAPUS
+#     del st.session_state['df_produk_ref']
 if 'df_stock' not in st.session_state:
     st.session_state.df_stock = pd.DataFrame()
 if 'stock_filename' not in st.session_state:
@@ -140,7 +142,7 @@ def map_city(nama_dept):
 @st.cache_data
 def convert_df_to_excel(df):
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer: # <-- KOREKSI 'openpyxl'
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Sheet1')
     processed_data = output.getvalue()
     return processed_data
@@ -366,7 +368,7 @@ elif page == "Hasil Analisa Stock":
         st.stop()
 
     penjualan = st.session_state.df_penjualan.copy()
-    produk_ref = st.session_state.df_produk_ref.copy()
+    produk_ref = st.session_state.produk_ref.copy() # <-- KOREKSI: Menggunakan 'produk_ref'
     df_stock = st.session_state.df_stock.copy()
 
     for df in [penjualan, produk_ref, df_stock]:
@@ -851,13 +853,13 @@ elif page == "Hasil Analisa ABC":
 
 
         # --- Validasi Data ---
-        if st.session_state.df_penjualan.empty or st.session_state.df_produk_ref.empty:
+        if st.session_state.df_penjualan.empty or st.session_state.produk_ref.empty:
             st.warning("⚠️ Harap muat file **Penjualan** dan **Produk Referensi** di halaman **'Input Data'** terlebih dahulu.")
             st.stop()
             
         # --- Preprocessing Data ---
         all_so_df = st.session_state.df_penjualan.copy()
-        produk_ref = st.session_state.df_produk_ref.copy()
+        produk_ref = st.session_state.produk_ref.copy()
         for df in [all_so_df, produk_ref]:
             if 'No. Barang' in df.columns:
                 df['No. Barang'] = df['No. Barang'].astype(str).str.strip()
