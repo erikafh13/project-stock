@@ -31,9 +31,7 @@ st.sidebar.markdown("---")
 if 'df_penjualan' not in st.session_state:
     st.session_state.df_penjualan = pd.DataFrame()
 if 'produk_ref' not in st.session_state:
-    st.session_state.produk_ref = pd.DataFrame() # <-- KOREKSI: Gunakan 'produk_ref' saja
-# if 'df_produk_ref' in st.session_state: # BARIS LAMA DIHAPUS
-#     del st.session_state['df_produk_ref']
+    st.session_state.produk_ref = pd.DataFrame()
 if 'df_stock' not in st.session_state:
     st.session_state.df_stock = pd.DataFrame()
 if 'stock_filename' not in st.session_state:
@@ -167,13 +165,15 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     # 1. Hitung Log10(metric) hanya untuk metric > 0, sisanya NaN
     df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
     
-    # 2. Hitung patokan (rata-rata log) per grup, abaikan NaN
+    # === KOREKSI LOGIKA RATA-RATA: Mengembalikan ke Standar Analytics (Mengabaikan NaN) ===
+    # 2. Hitung patokan (rata-rata log) per grup. 
+    #    .transform('mean') secara default mengabaikan NaN, sehingga hanya produk SO WMA > 0 yang masuk perhitungan rata-rata.
     df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
     
     # 3. Hitung rasio Log(metric) / Avg_Log_metric
     df[ratio_col_name] = df[log_col_name] / df[avg_log_col_name]
     
-    # Isi NaN hasil pembagian (misal 0/0 atau log/NaN) dengan 0
+    # Isi NaN hasil pembagian dengan 0
     df[ratio_col_name] = df[ratio_col_name].fillna(0)
     
     def apply_category_log(row):
@@ -368,7 +368,7 @@ elif page == "Hasil Analisa Stock":
         st.stop()
 
     penjualan = st.session_state.df_penjualan.copy()
-    produk_ref = st.session_state.produk_ref.copy() # <-- KOREKSI: Menggunakan 'produk_ref'
+    produk_ref = st.session_state.produk_ref.copy()
     df_stock = st.session_state.df_stock.copy()
 
     for df in [penjualan, produk_ref, df_stock]:
@@ -807,13 +807,15 @@ elif page == "Hasil Analisa ABC":
             # PENTING: Menggunakan np.log10 (Log basis 10)
             df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
             
-            # 2. Hitung patokan (rata-rata log) per grup, abaikan NaN
+            # === KOREKSI LOGIKA RATA-RATA: Mengembalikan ke Standar Analytics (Mengabaikan NaN) ===
+            # 2. Hitung patokan (rata-rata log) per grup. 
+            #    .transform('mean') secara default mengabaikan NaN, sehingga hanya produk SO WMA > 0 yang masuk perhitungan rata-rata.
             df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
             
             # 3. Hitung rasio Log(metric) / Avg_Log_metric
             df[ratio_col_name] = df[log_col_name] / df[avg_log_col_name]
             
-            # Isi NaN hasil pembagian (misal 0/0 atau log/NaN) dengan 0
+            # Isi NaN hasil pembagian (misal NaN/Log Rata-rata) dengan 0
             df[ratio_col_name] = df[ratio_col_name].fillna(0)
             
             def apply_category_log(row):
