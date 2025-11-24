@@ -434,8 +434,8 @@ elif page == "Hasil Analisa Stock":
         with st.spinner("Melakukan perhitungan analisis stok..."):
             
             bulan_indonesia = {
-                1: 'Januari', 2: 'Februari', 3: 'Maret', 4: 'April', 5: 'Mei', 6: 'Juni',
-                7: 'Juli', 8: 'Agustus', 9: 'September', 10: 'Oktober', 11: 'November', 12: 'Desember'
+                1: 'JANUARI', 2: 'FEBRUARI', 3: 'MARET', 4: 'APRIL', 5: 'MEI', 6: 'JUNI',
+                7: 'JULI', 8: 'AGUSTUS', 9: 'SEPTEMBER', 10: 'OKTOBER', 11: 'NOVEMBER', 12: 'DESEMBER'
             }
             
             end_date_dt = pd.to_datetime(end_date)
@@ -972,6 +972,36 @@ elif page == "Hasil Analisa ABC":
                 result_log_bench_wma = classify_abc_log_benchmark(grouped.copy(), metric_col='AVG WMA')
                 
                 
+                # ============================== BLOK DEBUGGING TEMPORER ==============================
+
+                # Definisikan nama kelompok sesuai format UPPER yang sudah di cleaning:
+                DEBUG_CITY = 'SURABAYA'
+                DEBUG_CATEGORY = 'MONITOR L' 
+
+                df_debug = result_log_bench_wma[
+                    (result_log_bench_wma['City'] == DEBUG_CITY) & 
+                    (result_log_bench_wma['Kategori Barang'] == DEBUG_CATEGORY)
+                ].copy()
+
+                if not df_debug.empty:
+                    # Ambil nilai Avg Log WMA yang dihitung Python
+                    avg_log_wma_py = df_debug['Avg Log WMA'].iloc[0]
+                    
+                    # Hitung jumlah produk aktif yang masuk rata-rata (Log (10) WMA bukan NaN)
+                    active_count = df_debug['Log (10) WMA'].dropna().shape[0]
+
+                    st.error("⚠️ HASIL DEBUGGING: Kelompok 'MONITOR L - SURABAYA' (Hapus kode ini setelah selesai debugging)")
+                    st.write(f"**Nilai Avg Log WMA** Python: **{avg_log_wma_py:.6f}**")
+                    st.write(f"**Jumlah produk aktif (Log > 0)** yang masuk rata-rata: **{active_count}**")
+                    
+                    st.subheader("Data Input untuk Kelompok Ini (10 Baris Pertama)")
+                    st.dataframe(df_debug[['No. Barang', 'AVG WMA', 'Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA']].head(10))
+                else:
+                    st.error("⚠️ DEBUGGING GAGAL: Tidak ditemukan produk untuk kelompok 'MONITOR L - SURABAYA'. Periksa data input atau nama kategori/kota di file produk/penjualan.")
+                    
+                # ============================== AKHIR BLOK DEBUGGING TEMPORER ==============================
+
+
                 # --- [PERBAIKAN] Gabungkan Semua Hasil ---
                 
                 merge_keys = ['City', 'No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang', 
@@ -1011,7 +1041,7 @@ elif page == "Hasil Analisa ABC":
         # --- [MODIFIKASI] Tampilan Hasil ---
         if st.session_state.abc_analysis_result is not None:
             result_display = st.session_state.abc_analysis_result.copy()
-            result_display = result_display[result_display['City'] != 'OTHERS'] 
+            result_display = result_display[result_display['City'] != 'OTHERS'] # Casing sekarang UPPER
             
             # Filter (tidak berubah)
             st.header("Filter Hasil Analisis")
@@ -1220,7 +1250,8 @@ elif page == "Hasil Analisa ABC":
                 kategori_col = 'Kategori ABC (Log-Benchmark - WMA)'
                 metric_col = 'AVG WMA'
                 kategori_labels = ['A', 'B', 'C', 'D', 'E', 'F']
-                colors = ['#cce5ff', '#d4edda', '#fff3cd', '#f8d7da', '#e9ecef', '#6c757d']
+                colors = ['#cce5ff', '#d4edda', 'C': '#fff3cd', 
+                'D': '#f8d7da', 'E': '#e9ecef', 'F': '#6c757d']
                 # [REVISI] Menggunakan Avg/Mean/WMA dari kolom metric_col
                 metric_labels = {
                     'A': ("Produk Kelas A", "{:.1f} Rata-rata Penjualan"), 
