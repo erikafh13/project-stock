@@ -489,7 +489,7 @@ elif page == "Hasil Analisa Stock":
                 
                 final_result = full_data.copy() # Mulai dari full_data tanpa ABC Persen
                 
-                # [DIPERTAHANKAN] Jalankan ABC Log-Benchmark (A-F)
+                # [DIPERTAHINKAN] Jalankan ABC Log-Benchmark (A-F)
                 log_df = classify_abc_log_benchmark(final_result.copy(), metric_col='SO WMA')
                 final_result = pd.merge(
                     final_result, 
@@ -972,36 +972,6 @@ elif page == "Hasil Analisa ABC":
                 result_log_bench_wma = classify_abc_log_benchmark(grouped.copy(), metric_col='AVG WMA')
                 
                 
-                # ============================== BLOK DEBUGGING TEMPORER ==============================
-
-                # Definisikan nama kelompok sesuai format UPPER yang sudah di cleaning:
-                DEBUG_CITY = 'SURABAYA'
-                DEBUG_CATEGORY = 'MONITOR L' 
-
-                df_debug = result_log_bench_wma[
-                    (result_log_bench_wma['City'] == DEBUG_CITY) & 
-                    (result_log_bench_wma['Kategori Barang'] == DEBUG_CATEGORY)
-                ].copy()
-
-                if not df_debug.empty:
-                    # Ambil nilai Avg Log WMA yang dihitung Python
-                    avg_log_wma_py = df_debug['Avg Log WMA'].iloc[0]
-                    
-                    # Hitung jumlah produk aktif yang masuk rata-rata (Log > 0) yang bukan NaN
-                    active_count = df_debug['Log (10) WMA'].dropna().shape[0]
-
-                    st.error("⚠️ HASIL DEBUGGING: Kelompok 'MONITOR L - SURABAYA' (Hapus kode ini setelah selesai debugging)")
-                    st.write(f"**Nilai Avg Log WMA** Python: **{avg_log_wma_py:.6f}**")
-                    st.write(f"**Jumlah produk aktif (Log > 0)** yang masuk rata-rata: **{active_count}**")
-                    
-                    st.subheader("Data Input untuk Kelompok Ini (10 Baris Pertama)")
-                    st.dataframe(df_debug[['No. Barang', 'AVG WMA', 'Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA']].head(10))
-                else:
-                    st.error("⚠️ DEBUGGING GAGAL: Tidak ditemukan produk untuk kelompok 'MONITOR L - SURABAYA'. Periksa data input atau nama kategori/kota di file produk/penjualan.")
-                    
-                # ============================== AKHIR BLOK DEBUGGING TEMPORER ==============================
-
-
                 # --- [PERBAIKAN] Gabungkan Semua Hasil ---
                 
                 merge_keys = ['City', 'No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang', 
