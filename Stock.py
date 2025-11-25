@@ -145,6 +145,21 @@ def convert_df_to_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
+# --- [FUNGSI ISOLASI LOGARITMA] ---
+# Fungsi ini memastikan nilai Log minimal adalah 0, sesuai permintaan user
+def calculate_forced_log(x):
+    if x <= 0:
+        return np.nan # Hanya produk aktif yang dilogkan
+    
+    # 1. Bulatkan ke integer terdekat
+    rounded_x = np.round(x)
+    
+    # 2. Paksa nilai input Log minimal adalah 1 (untuk menghindari Log negatif)
+    log_input = np.maximum(1, rounded_x)
+    
+    # 3. Hitung Log10
+    return np.log10(log_input)
+
 
 # --- [DIPERTAHANKAN] Metode Log-Benchmark (A, B, C, D, E, F) ---
 def classify_abc_log_benchmark(df_grouped, metric_col):
@@ -162,20 +177,10 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     log_col_name = f'Log (10) {metric_name_suffix}'
     avg_log_col_name = f'Avg Log {metric_name_suffix}'
     
-    # === [REVISI KRITIS]: BULATKAN METRIK TERLEBIH DAHULU SEBELUM DILOG-KAN ===
+    # === [REVISI KRITIS]: MENGGUNAKAN FUNGSI ISOLASI ===
     
-    # 1a. Bulatkan metrik AVG WMA/AVG Mean ke integer terdekat.
-    df['Rounded_Metric'] = df[metric_col].apply(np.round)
-    
-    # 1b. Terapkan Batas Bawah: Jika hasil pembulatan <= 0, paksa nilainya menjadi 1. 
-    df['Log_Input'] = np.maximum(1, df['Rounded_Metric']).astype(float)
-    
-    # 1c. Hitung Log10(metric) menggunakan input yang dipaksa >= 1.
-    df[log_col_name] = np.where(
-        df[metric_col] > 0,
-        np.log10(df['Log_Input']),
-        np.nan
-    )
+    # 1. Hitung Log10(metric) setelah pembulatan dan dipaksa min 1.
+    df[log_col_name] = df[metric_col].apply(calculate_forced_log)
     
     # 2. Hitung patokan (rata-rata log) per grup. 
     df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
@@ -185,9 +190,6 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     
     # Isi NaN hasil pembagian dengan 0
     df[ratio_col_name] = df[ratio_col_name].fillna(0)
-    
-    # Hapus kolom Rounded_Metric yang bersifat sementara
-    df.drop(columns=['Rounded_Metric', 'Log_Input'], inplace=True, errors='ignore') 
     
     def apply_category_log(row):
         # 4. Kategori 'F' untuk metric <= 0
