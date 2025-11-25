@@ -177,9 +177,9 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     log_col_name = f'Log (10) {metric_name_suffix}'
     avg_log_col_name = f'Avg Log {metric_name_suffix}'
     
-    # === [REVISI KRITIS]: MENGGUNAKAN FUNGSI ISOLASI ===
+    # === [REVISI KRITIS]: BULATKAN METRIK TERLEBIH DAHULU SEBELUM DILOG-KAN ===
     
-    # 1. Hitung Log10(metric) setelah pembulatan dan dipaksa min 1.
+    # 1. Hitung Log10(metric) menggunakan fungsi isolasi yang memaksa input >= 1.
     df[log_col_name] = df[metric_col].apply(calculate_forced_log)
     
     # 2. Hitung patokan (rata-rata log) per grup. 
