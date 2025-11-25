@@ -162,11 +162,17 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     log_col_name = f'Log (10) {metric_name_suffix}'
     avg_log_col_name = f'Avg Log {metric_name_suffix}'
     
-    # 1. Hitung Log10(metric) hanya untuk metric > 0, sisanya NaN
-    df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
+    # === [REVISI KRITIS]: BULATKAN METRIK TERLEBIH DAHULU SEBELUM DILOG-KAN ===
+    
+    # 1a. Bulatkan metrik AVG WMA/AVG Mean ke integer terdekat.
+    #     np.round() akan membulatkan 0.5 ke atas (e.g., 0.5 -> 1.0, 0.4 -> 0.0)
+    df['Rounded_Metric'] = df[metric_col].apply(np.round)
+    
+    # 1b. Hitung Log10(metric) hanya jika metrik yang sudah dibulatkan > 0.
+    #     Jika metrik dibulatkan menjadi 0, hasilnya adalah NaN (tidak termasuk hitungan rata-rata).
+    df[log_col_name] = df['Rounded_Metric'].apply(lambda x: np.log10(x) if x > 0 else np.nan)
     
     # 2. Hitung patokan (rata-rata log) per grup. 
-    #    transform('mean') secara default mengabaikan NaN, sehingga hanya produk SO WMA > 0 yang masuk perhitungan rata-rata.
     df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
     
     # 3. Hitung rasio Log(metric) / Avg_Log_metric
@@ -175,8 +181,13 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     # Isi NaN hasil pembagian dengan 0
     df[ratio_col_name] = df[ratio_col_name].fillna(0)
     
+    # Hapus kolom Rounded_Metric yang bersifat sementara
+    df.drop(columns=['Rounded_Metric'], inplace=True) 
+    
     def apply_category_log(row):
         # 4. Kategori 'F' untuk metric <= 0
+        #    Kita menggunakan metrik ASLI (AVG WMA/AVG Mean) untuk menentukan F, 
+        #    karena Log(0) sudah ditangani di langkah 1b.
         if row[metric_col] <= 0:
             return 'F'
         
@@ -545,7 +556,7 @@ elif page == "Hasil Analisa Stock":
                     if col in final_result.columns:
                         final_result[col] = final_result[col].round(0).astype(int)
                 
-                # [DIPERTAHANKAN] Bulatkan kolom float
+                # [DIPERTAHINKAN] Bulatkan kolom float
                 float_cols = [
                     'Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA'
                 ]
@@ -810,19 +821,25 @@ elif page == "Hasil Analisa ABC":
             log_col_name = f'Log (10) {metric_name_suffix}'
             avg_log_col_name = f'Avg Log {metric_name_suffix}'
             
-            # 1. Hitung Log10(metric) hanya untuk metric > 0, sisanya NaN
-            # PENTING: Menggunakan np.log10 (Log basis 10)
-            df[log_col_name] = df[metric_col].apply(lambda x: np.log10(x) if x > 0 else np.nan)
+            # === [REVISI KRITIS]: BULATKAN METRIK TERLEBIH DAHULU SEBELUM DILOG-KAN ===
+            
+            # 1a. Bulatkan metrik AVG WMA/AVG Mean ke integer terdekat.
+            df['Rounded_Metric'] = df[metric_col].apply(np.round)
+            
+            # 1b. Hitung Log10(metric) hanya jika metrik yang sudah dibulatkan > 0.
+            df[log_col_name] = df['Rounded_Metric'].apply(lambda x: np.log10(x) if x > 0 else np.nan)
             
             # 2. Hitung patokan (rata-rata log) per grup. 
-            #    .transform('mean') secara default mengabaikan NaN, sehingga hanya produk SO WMA > 0 yang masuk perhitungan rata-rata.
             df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
             
             # 3. Hitung rasio Log(metric) / Avg_Log_metric
             df[ratio_col_name] = df[log_col_name] / df[avg_log_col_name]
             
-            # Isi NaN hasil pembagian (misal NaN/Log Rata-rata) dengan 0
+            # Isi NaN hasil pembagian dengan 0
             df[ratio_col_name] = df[ratio_col_name].fillna(0)
+            
+            # Hapus kolom Rounded_Metric yang bersifat sementara
+            df.drop(columns=['Rounded_Metric'], inplace=True) 
             
             def apply_category_log(row):
                 # 4. Kategori 'F' untuk metric <= 0
