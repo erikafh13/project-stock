@@ -168,14 +168,15 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     df['Rounded_Metric'] = df[metric_col].apply(np.round)
     
     # 1b. Terapkan Batas Bawah: Jika hasil pembulatan <= 0, paksa nilainya menjadi 1. 
-    #     Ini memastikan Log(input) tidak pernah menjadi negatif atau NaN.
+    #     Ini memastikan Log(input) tidak pernah menjadi negatif.
     df['Log_Input'] = np.maximum(1, df['Rounded_Metric']).astype(float)
     
     # 1c. Hitung Log10(metric) menggunakan input yang dipaksa >= 1.
-    #     Kita tetap menggunakan kondisi metric_col > 0 untuk menangani Kategori F secara terpisah.
-    df[log_col_name] = df.apply(
-        lambda row: np.log10(row['Log_Input']) if row[metric_col] > 0 else np.nan,
-        axis=1
+    #     Gunakan np.where untuk memastikan Log_Input hanya digunakan jika SO WMA asli > 0
+    df[log_col_name] = np.where(
+        df[metric_col] > 0,
+        np.log10(df['Log_Input']),
+        np.nan
     )
     
     # 2. Hitung patokan (rata-rata log) per grup. 
@@ -834,9 +835,10 @@ elif page == "Hasil Analisa ABC":
             df['Log_Input'] = np.maximum(1, df['Rounded_Metric']).astype(float)
             
             # 1c. Hitung Log10(metric) menggunakan input yang dipaksa >= 1.
-            df[log_col_name] = df.apply(
-                lambda row: np.log10(row['Log_Input']) if row[metric_col] > 0 else np.nan,
-                axis=1
+            df[log_col_name] = np.where(
+                df[metric_col] > 0,
+                np.log10(df['Log_Input']),
+                np.nan
             )
             
             # 2. Hitung patokan (rata-rata log) per grup. 
@@ -1024,10 +1026,7 @@ elif page == "Hasil Analisa ABC":
                          result_final[col] = result_final[col].round(0).astype(int)
 
                 # [DIPERTAHANKAN] Bulatkan kolom log/ratio ke 2 desimal (FLOAT)
-                metric_cols_float = [
-                    'Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA',
-                    'Log (10) Mean', 'Avg Log Mean', 'Ratio Log Mean'
-                ]
+                metric_cols_float = ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Log (10) Mean', 'Avg Log Mean', 'Ratio Log Mean']
                 for col in metric_cols_float:
                     if col in result_final.columns:
                         result_final[col] = result_final[col].round(2)
@@ -1231,8 +1230,7 @@ elif page == "Hasil Analisa ABC":
             st.download_button("📥 Unduh Hasil Analisis ABC (Excel)",data=output_abc.getvalue(),file_name=f"Hasil_Analisis_ABC_{end_date_input}.xlsx",mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
     # --- [REVISI TOTAL] Dashboard ---
-    with tab2_abc:
-        st.header("📈 Dashboard Analisis ABC (Log-Benchmark)")
+        # ... (Dashboard code remains the same)
         if 'abc_analysis_result' in st.session_state and st.session_state.abc_analysis_result is not None:
             result_display_dash = st.session_state.abc_analysis_result.copy()
             
