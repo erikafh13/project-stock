@@ -161,91 +161,70 @@ def calculate_forced_log(x):
     return np.log10(log_input)
 
 
-# --- [PERBAIKAN] Metode Log-Benchmark (A, B, C, D, E, F) ---
-# Mengganti fungsi lama agar nama kolom sesuai dengan yang diminta di Analisa Stock
-# --- [PERBAIKAN FINAL] Metode Log-Benchmark (Filter SO >= 1 untuk Average) ---
+# --- [PERBAIKAN FINAL - SINKRON DENGAN EXCEL] ---
 def classify_abc_log_benchmark(df_grouped, metric_col):
     df = df_grouped.copy()
 
-    # Pastikan kolom kategori ada
     if 'Kategori Barang' not in df.columns:
         st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
         return df
 
-    # 1. Bersihkan nama metrik untuk penamaan kolom output
     clean_metric = metric_col.replace('SO ', '').replace('AVG ', '')
-
-    # 2. Definisikan Nama Kolom Output
     log_col = f'Log (10) {clean_metric}'
     avg_log_col = f'Avg Log {clean_metric}'
     ratio_col = f'Ratio Log {clean_metric}'
     kategori_col_name = f'Kategori ABC (Log-Benchmark - {clean_metric})'
 
-    # 3. Hitung Log10 Individu
-    # Logika: Bulatkan, lalu paksa minimal 1 agar Log(1)=0 (menghindari error log minus/inf)
+    # 1. BULATKAN DULU
+    # Ini kunci agar sinkron dengan tampilan Excel
     df['Rounded_Metric'] = df[metric_col].apply(np.round)
+    
+    # 2. Hitung Log Individu (Paksa min 1 dari hasil BULAT)
     df['Log_Input'] = np.maximum(1, df['Rounded_Metric']).astype(float)
     
     df[log_col] = np.where(
         df[metric_col] > 0,
         np.log10(df['Log_Input']),
-        np.nan # Jika metric <= 0, log dianggap NaN dulu
+        np.nan 
     )
 
     # -----------------------------------------------------------------------
-    # 4. [MODIFIKASI] Hitung Rata-rata Log (Benchmark) 
-    # SYARAT: Hanya hitung rata-rata dari produk yang SO (Metric) >= 1
+    # 3. [MODIFIKASI] Hitung Rata-rata Log (Benchmark)
+    # Gunakan 'Rounded_Metric' untuk filter agar angka 0.5 - 0.9 dianggap 1 (Valid)
+    # Ini akan menurunkan rata-rata benchmark (menjadi 0.635) karena Log(1)=0 masuk hitungan
     # -----------------------------------------------------------------------
     
-    # Ambil data yang valid untuk perhitungan rata-rata
-    valid_data_for_avg = df[df[metric_col] >= 1].copy()
+    valid_data_for_avg = df[df['Rounded_Metric'] >= 1].copy()
     
-    # Hitung rata-rata per grup (City + Kategori) hanya dari data valid
     avg_reference = valid_data_for_avg.groupby(['City', 'Kategori Barang'])[log_col].mean().reset_index()
-    
-    # Rename kolom hasil hitungan agar sesuai target
     avg_reference.rename(columns={log_col: avg_log_col}, inplace=True)
     
-    # Hapus kolom Avg Log lama jika ada (untuk menghindari duplikat saat merge)
     if avg_log_col in df.columns:
         df.drop(columns=[avg_log_col], inplace=True)
 
-    # Gabungkan (Merge) nilai rata-rata tersebut kembali ke Dataframe Utama
-    # 'left' join memastikan semua produk (termasuk yg SO < 1) tetap ada barisnya
     df = pd.merge(df, avg_reference, on=['City', 'Kategori Barang'], how='left')
-
-    # Jika ada grup yang isinya SO < 1 semua (sehingga Avg NaN), isi dengan 0
     df[avg_log_col] = df[avg_log_col].fillna(0)
 
-    # -----------------------------------------------------------------------
-
-    # 5. Hitung Rasio
-    # Rasio = Log Produk / Rata-rata Grup
+    # 4. Hitung Rasio & Kategori
     df[ratio_col] = df[log_col] / df[avg_log_col]
-    df[ratio_col] = df[ratio_col].fillna(0) # Handle NaN division
+    df[ratio_col] = df[ratio_col].fillna(0)
 
-    # Bersihkan kolom temporary
+    # Bersihkan
     df.drop(columns=['Rounded_Metric', 'Log_Input'], inplace=True, errors='ignore')
 
-    # 6. Fungsi Kategorisasi
     def apply_category_log(row):
-        # Jika metric <= 0 atau NaN -> F
-        if row[metric_col] <= 0 or pd.isna(row[metric_col]):
-            return 'F'
-        
+        if row[metric_col] <= 0 or pd.isna(row[metric_col]): return 'F'
         ratio = row[ratio_col]
-        
-        # Range A–E
         if ratio > 2: return 'A'
         elif ratio > 1.5: return 'B'
         elif ratio > 1: return 'C'
         elif ratio > 0.5: return 'D'
         else: return 'E'
 
-    # 7. Terapkan kategori
     df[kategori_col_name] = df.apply(apply_category_log, axis=1)
 
     return df
+    
 # =====================================================================================
 # 			 			 	 	 ROUTING HALAMAN
 # =====================================================================================
@@ -1384,6 +1363,7 @@ elif page == "Hasil Analisis Margin":
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
     
 # =====================================================================================
+
 
 
 
