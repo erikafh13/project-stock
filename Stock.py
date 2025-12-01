@@ -166,37 +166,42 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
 
     df = df_grouped.copy()
 
-    # Cek kolom
+    # Pastikan kolom kategori ada
     if 'Kategori Barang' not in df.columns:
         st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
         df['Kategori ABC (Log-Benchmark)'] = 'N/A'
         return df
 
-    # Kolom baru
+    # Nama kolom
     log_col = 'Log10 ' + metric_col
     avg_log_col = 'Avg Log ' + metric_col
     ratio_col = 'Ratio Log ' + metric_col
+    kategori_col_name = 'Kategori ABC (Log-Benchmark)'
 
-    # 1. Hitung LOG10 normal (tanpa forced log)
-    df[log_col] = np.log10(df[metric_col])
+    # 1. Hitung LOG10 — nilai <=0 otomatis menjadi NaN
+    df[log_col] = np.where(df[metric_col] > 0,
+                           np.log10(df[metric_col]),
+                           np.nan)
 
-    # 2. Hitung rata-rata log (Excel-style: 1 nilai per grup)
-    df[avg_log_col] = df.groupby(['City','Kategori Barang'])[log_col].transform('mean')
+    # 2. Hitung rata-rata log per grup (NaN otomatis di-skip)
+    df[avg_log_col] = df.groupby(['City', 'Kategori Barang'])[log_col].transform('mean')
 
-    # 3. Hitung rasio Log(baris)/AvgLog
+    # 3. Hitung rasio Log / AvgLog
     df[ratio_col] = df[log_col] / df[avg_log_col]
 
-    # 4. Kembalikan
-    return df
-    
+    # 4. Fungsi kategorisasi
     def apply_category_log(row):
-        # 4. Kategori 'F' untuk metric <= 0
-        if row[metric_col] <= 0:
+        # Jika metric <= 0 → otomatis F
+        if row[metric_col] <= 0 or pd.isna(row[metric_col]):
             return 'F'
-        
-        # 5. Kategorikan sisanya (A-E) berdasarkan rasio
-        ratio = row[ratio_col_name]
-        # Ambang batas ditentukan oleh Log-Ratio
+
+        ratio = row[ratio_col]
+
+        # Jika rasio NaN, tidak bisa dikategorikan → beri 'N/A'
+        if pd.isna(ratio):
+            return 'N/A'
+
+        # Range A–E
         if ratio > 2:
             return 'A'
         elif ratio > 1.5:
@@ -206,12 +211,13 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
         elif ratio > 0.5:
             return 'D'
         else:
-            return 'E' # Termasuk 0-0.5
-    
-    # 6. Terapkan kategori
+            return 'E'
+
+    # 5. Terapkan kategori
     df[kategori_col_name] = df.apply(apply_category_log, axis=1)
-    
+
     return df
+
 
 
 # =====================================================================================
@@ -1352,4 +1358,5 @@ elif page == "Hasil Analisis Margin":
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
     
 # =====================================================================================
+
 
