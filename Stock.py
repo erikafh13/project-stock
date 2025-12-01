@@ -163,33 +163,31 @@ def calculate_forced_log(x):
 
 # --- [DIPERTAHANKAN] Metode Log-Benchmark (A, B, C, D, E, F) ---
 def classify_abc_log_benchmark(df_grouped, metric_col):
+
     df = df_grouped.copy()
+
+    # Cek kolom
     if 'Kategori Barang' not in df.columns:
         st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
-        df[f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "").replace("SO ", "")})'] = 'N/A'
+        df['Kategori ABC (Log-Benchmark)'] = 'N/A'
         return df
-    
-    # Buat nama kolom unik
-    kategori_col_name = f'Kategori ABC (Log-Benchmark - {metric_col.replace("AVG ", "").replace("SO ", "")})'
-    metric_name_suffix = metric_col.replace('AVG ', '').replace('SO ', '')
-    # Menggunakan nama baru yang konsisten
-    ratio_col_name = f'Ratio Log {metric_name_suffix}'
-    log_col_name = f'Log (10) {metric_name_suffix}'
-    avg_log_col_name = f'Avg Log {metric_name_suffix}'
-    
-    # === [REVISI KRITIS]: BULATKAN METRIK TERLEBIH DAHULU SEBELUM DILOG-KAN ===
-    
-    # 1. Hitung Log10(metric) menggunakan fungsi isolasi yang memaksa input >= 1.
-    df[log_col_name] = df[metric_col].apply(calculate_forced_log)
-    
-    # 2. Hitung patokan (rata-rata log) per grup. 
-    df[avg_log_col_name] = df.groupby(['City', 'Kategori Barang'])[log_col_name].transform('mean')
-    
-    # 3. Hitung rasio Log(metric) / Avg_Log_metric
-    df[ratio_col_name] = df[log_col_name] / df[avg_log_col_name]
-    
-    # Isi NaN hasil pembagian dengan 0
-    df[ratio_col_name] = df[ratio_col_name].fillna(0)
+
+    # Kolom baru
+    log_col = 'Log10 ' + metric_col
+    avg_log_col = 'Avg Log ' + metric_col
+    ratio_col = 'Ratio Log ' + metric_col
+
+    # 1. Hitung LOG10 normal (tanpa forced log)
+    df[log_col] = np.log10(df[metric_col])
+
+    # 2. Hitung rata-rata log (Excel-style: 1 nilai per grup)
+    df[avg_log_col] = df.groupby(['City','Kategori Barang'])[log_col].transform('mean')
+
+    # 3. Hitung rasio Log(baris)/AvgLog
+    df[ratio_col] = df[log_col] / df[avg_log_col]
+
+    # 4. Kembalikan
+    return df
     
     def apply_category_log(row):
         # 4. Kategori 'F' untuk metric <= 0
@@ -1354,3 +1352,4 @@ elif page == "Hasil Analisis Margin":
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
     
 # =====================================================================================
+
