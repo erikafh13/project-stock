@@ -161,64 +161,66 @@ def calculate_forced_log(x):
     return np.log10(log_input)
 
 
-# --- [DIPERTAHANKAN] Metode Log-Benchmark (A, B, C, D, E, F) ---
+# --- [PERBAIKAN] Metode Log-Benchmark (A, B, C, D, E, F) ---
+# Mengganti fungsi lama agar nama kolom sesuai dengan yang diminta di Analisa Stock
 def classify_abc_log_benchmark(df_grouped, metric_col):
-
     df = df_grouped.copy()
 
     # Pastikan kolom kategori ada
     if 'Kategori Barang' not in df.columns:
         st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
-        df['Kategori ABC (Log-Benchmark)'] = 'N/A'
         return df
 
-    # Nama kolom
-    log_col = 'Log10 ' + metric_col
-    avg_log_col = 'Avg Log ' + metric_col
-    ratio_col = 'Ratio Log ' + metric_col
-    kategori_col_name = 'Kategori ABC (Log-Benchmark)'
+    # 1. Bersihkan nama metrik (Hapus "SO " atau "AVG " agar nama kolom rapi)
+    clean_metric = metric_col.replace('SO ', '').replace('AVG ', '')
 
-    # 1. Hitung LOG10 — nilai <=0 otomatis menjadi NaN
-    df[log_col] = np.where(df[metric_col] > 0,
-                           np.log10(df[metric_col]),
-                           np.nan)
+    # 2. Definisikan Nama Kolom Output (Sesuai ekspektasi baris 516)
+    log_col = f'Log (10) {clean_metric}'
+    avg_log_col = f'Avg Log {clean_metric}'
+    ratio_col = f'Ratio Log {clean_metric}'
+    kategori_col_name = f'Kategori ABC (Log-Benchmark - {clean_metric})'
 
-    # 2. Hitung rata-rata log per grup (NaN otomatis di-skip)
+    # 3. Logika Perhitungan Log (Sama dengan logika ABC Page)
+    # Bulatkan dulu, paksa minimal 1 agar tidak error log(0)
+    df['Rounded_Metric'] = df[metric_col].apply(np.round)
+    df['Log_Input'] = np.maximum(1, df['Rounded_Metric']).astype(float)
+    
+    # Hitung Log10
+    df[log_col] = np.where(
+        df[metric_col] > 0,
+        np.log10(df['Log_Input']),
+        np.nan
+    )
+
+    # 4. Hitung rata-rata log per grup (City + Kategori)
     df[avg_log_col] = df.groupby(['City', 'Kategori Barang'])[log_col].transform('mean')
 
-    # 3. Hitung rasio Log / AvgLog
+    # 5. Hitung Rasio
     df[ratio_col] = df[log_col] / df[avg_log_col]
+    df[ratio_col] = df[ratio_col].fillna(0) # Handle jika avg_log 0 atau NaN
 
-    # 4. Fungsi kategorisasi
+    # Bersihkan kolom temporary
+    df.drop(columns=['Rounded_Metric', 'Log_Input'], inplace=True, errors='ignore')
+
+    # 6. Fungsi Kategorisasi
     def apply_category_log(row):
-        # Jika metric <= 0 → otomatis F
+        # Jika metric <= 0 atau NaN -> F
         if row[metric_col] <= 0 or pd.isna(row[metric_col]):
             return 'F'
-
+        
         ratio = row[ratio_col]
-
-        # Jika rasio NaN, tidak bisa dikategorikan → beri 'N/A'
-        if pd.isna(ratio):
-            return 'N/A'
-
+        
         # Range A–E
-        if ratio > 2:
-            return 'A'
-        elif ratio > 1.5:
-            return 'B'
-        elif ratio > 1:
-            return 'C'
-        elif ratio > 0.5:
-            return 'D'
-        else:
-            return 'E'
+        if ratio > 2: return 'A'
+        elif ratio > 1.5: return 'B'
+        elif ratio > 1: return 'C'
+        elif ratio > 0.5: return 'D'
+        else: return 'E'
 
-    # 5. Terapkan kategori
+    # 7. Terapkan kategori
     df[kategori_col_name] = df.apply(apply_category_log, axis=1)
 
     return df
-
-
 
 # =====================================================================================
 # 			 			 	 	 ROUTING HALAMAN
@@ -1358,5 +1360,6 @@ elif page == "Hasil Analisis Margin":
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
     
 # =====================================================================================
+
 
 
