@@ -499,9 +499,10 @@ elif page == "Hasil Analisa Stock":
                     }
                     
                     # Days Multiplier (Time Based)
+                    # A (45 Hari), B (37 Hari), C (30 Hari), D (21 Hari), E (15 Hari)
                     days_map = {
-                        'A': 1.2, 'B': 1.0, 'C': 1.0, 
-                        'D': 0.7, 'E': 0.5, 'F': 0
+                        'A': 1.5, 'B': 1.25, 'C': 1.0, 
+                        'D': 0.7, 'E': 0.5, 'F': 0.0
                     }
                     return ss_map.get(kategori, 0), days_map.get(kategori, 1.0)
 
@@ -531,7 +532,7 @@ elif page == "Hasil Analisa Stock":
                     selected_method = st.selectbox(
                         "Pilih Metode Min Stock yang Digunakan untuk Status & PO:",
                         ["Min Stock (Flat)", "Min Stock (SS)", "Min Stock (Days)"],
-                        index=1, 
+                        index=1, # Default ke SS (Hemat)
                         help="Pilih metode acuan. 'Flat' = Murni WMA. 'SS' = WMA + Buffer (Hemat). 'Days' = WMA * Hari."
                     )
                 
