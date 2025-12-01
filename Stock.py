@@ -494,8 +494,8 @@ elif page == "Hasil Analisa Stock":
                     # D: 15 Hari (0.5x - Setengah bulan)
                     # E: 7 Hari (0.25x - Seminggu)
                     days_map = {
-                        'A': 1, 'B': 0.8, 'C': 0.6, 
-                        'D': 0.4, 'E': 0.2, 'F': 0.0
+                        'A': 1, 'B': 1, 'C': 0.75, 
+                        'D': 0.5, 'E': 0.25, 'F': 0.0
                     }
                     return ss_map.get(kategori, 0), days_map.get(kategori, 1.0)
 
@@ -1048,4 +1048,5 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
