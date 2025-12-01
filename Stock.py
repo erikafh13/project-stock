@@ -146,8 +146,6 @@ def convert_df_to_excel(df):
     return processed_data
 
 # --- [CORE FUNCTION] Metode Log-Benchmark (Sinkron dengan Excel) ---
-# Fungsi ini diperbaiki agar menggunakan Rounded Metric untuk filter rata-rata
-# Sehingga hasil 0.635 sama dengan hitungan manual Excel
 def classify_abc_log_benchmark(df_grouped, metric_col):
     df = df_grouped.copy()
 
@@ -155,17 +153,16 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
         st.warning("Kolom 'Kategori Barang' tidak ada untuk metode benchmark.")
         return df
 
-    # Bersihkan nama metrik untuk penamaan kolom
     clean_metric = metric_col.replace('SO ', '').replace('AVG ', '')
     log_col = f'Log (10) {clean_metric}'
     avg_log_col = f'Avg Log {clean_metric}'
     ratio_col = f'Ratio Log {clean_metric}'
     kategori_col_name = f'Kategori ABC (Log-Benchmark - {clean_metric})'
 
-    # 1. BULATKAN DULU (Penting agar sinkron dengan Excel)
+    # 1. BULATKAN DULU (Agar sinkron dengan Excel)
     df['Rounded_Metric'] = df[metric_col].apply(np.round)
     
-    # 2. Hitung Log Individu (Paksa min 1 dari hasil BULAT)
+    # 2. Hitung Log Individu (Paksa min 1)
     df['Log_Input'] = np.maximum(1, df['Rounded_Metric']).astype(float)
     
     df[log_col] = np.where(
@@ -174,19 +171,15 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
         np.nan 
     )
 
-    # 3. Hitung Rata-rata Log (Benchmark)
-    # Gunakan 'Rounded_Metric >= 1' sebagai filter
-    # Ini memastikan angka 0.6 (rounded 1) masuk hitungan, dan angka < 0.5 (rounded 0) dibuang
+    # 3. Hitung Rata-rata Log (Benchmark) - Filter Rounded >= 1
     valid_data_for_avg = df[df['Rounded_Metric'] >= 1].copy()
     
     avg_reference = valid_data_for_avg.groupby(['City', 'Kategori Barang'])[log_col].mean().reset_index()
     avg_reference.rename(columns={log_col: avg_log_col}, inplace=True)
     
-    # Hapus kolom lama jika ada
     if avg_log_col in df.columns:
         df.drop(columns=[avg_log_col], inplace=True)
 
-    # Merge rata-rata kembali ke data utama
     df = pd.merge(df, avg_reference, on=['City', 'Kategori Barang'], how='left')
     df[avg_log_col] = df[avg_log_col].fillna(0)
 
@@ -194,7 +187,6 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     df[ratio_col] = df[log_col] / df[avg_log_col]
     df[ratio_col] = df[ratio_col].fillna(0)
 
-    # Bersihkan kolom temporary
     df.drop(columns=['Rounded_Metric', 'Log_Input'], inplace=True, errors='ignore')
 
     def apply_category_log(row):
@@ -324,12 +316,10 @@ elif page == "Hasil Analisa Stock":
         text_color = "white" if val == 'F' else "black"
         return f'background-color: {color}; color: {text_color}'
 
-    # Status Stock Logic
     def get_status_stock(row):
         kategori_log = row['Kategori ABC (Log-Benchmark - WMA)'] 
         if kategori_log == 'F': 
             return 'Overstock F' if row['Stock Cabang'] > 2 else 'Balance'
-        
         if row['Stock Cabang'] > row['Max Stock']: return 'Overstock'
         if row['Stock Cabang'] < row['Min Stock']: return 'Understock' 
         if row['Stock Cabang'] >= row['Min Stock']: return 'Balance' 
@@ -339,7 +329,6 @@ elif page == "Hasil Analisa Stock":
         colors = {'Understock': '#fff3cd', 'Balance': '#d4edda', 'Overstock': '#ffd6a5', 'Overstock F': '#f5c6cb'}
         return f'background-color: {colors.get(val, "")}'
 
-    # PO Calculation Logic
     def hitung_po_cabang_baru(stock_surabaya, stock_cabang, stock_total, suggest_po_all, so_cabang, add_stock_cabang):
         try:
             if stock_surabaya < stock_cabang: return 0
@@ -385,7 +374,6 @@ elif page == "Hasil Analisa Stock":
     penjualan['Nama Dept'] = penjualan.apply(map_nama_dept, axis=1)
     penjualan['City'] = penjualan['Nama Dept'].apply(map_city)
     
-    # --- CLEANING ---
     produk_ref.rename(columns={'Keterangan Barang': 'Nama Barang'}, inplace=True, errors='ignore')
     if 'Kategori Barang' in produk_ref.columns:
         produk_ref['Kategori Barang'] = produk_ref['Kategori Barang'].astype(str).str.strip().str.upper()
@@ -476,7 +464,6 @@ elif page == "Hasil Analisa Stock":
                 # --- [CORE] Jalankan Analisa ABC Log-Benchmark ---
                 log_df = classify_abc_log_benchmark(final_result.copy(), metric_col='SO WMA')
                 
-                # Merge Hasil ABC
                 final_result = pd.merge(
                     final_result, 
                     log_df[['City', 'No. Barang', 'Kategori ABC (Log-Benchmark - WMA)', 'Ratio Log WMA', 'Log (10) WMA', 'Avg Log WMA']], 
@@ -485,24 +472,30 @@ elif page == "Hasil Analisa Stock":
                 )
 
                 # ==============================================================================
-                # [FITUR BARU] Hitung 3 Variasi Min Stock (STRATEGI HEMAT/EFISIENSI)
+                # [FITUR BARU] Hitung 3 Variasi Min Stock (STRATEGI ULTRA-LEAN)
                 # ==============================================================================
                 
                 def get_abc_settings(kategori):
-                    # STRATEGI EFISIENSI (HEMAT STOK)
-                    # A: +20% (Jaga buffer sedikit)
-                    # B & C: 0% (Pas-pasan)
-                    # D & E: -30% / -50% (Kurangi stok, karena slow moving)
+                    # STRATEGI ULTRA-LEAN (SANGAT HEMAT STOK)
+                    # 1. Safety Stock (Buffer %)
+                    # A: +10% (Cukup buffer 3 hari)
+                    # B & C: 0% (Pas sesuai rata-rata)
+                    # D: -50% (Pangkas setengah)
+                    # E: -80% (Stok sangat tipis)
                     ss_map = {
-                        'A': 0.20, 'B': 0.0, 'C': 0.0, 
-                        'D': -0.30, 'E': -0.50, 'F': -1.0
+                        'A': 0.10, 'B': 0.0, 'C': 0.0, 
+                        'D': -0.50, 'E': -0.80, 'F': -1.0
                     }
                     
-                    # Days Multiplier (Time Based)
-                    # A (45 Hari), B (37 Hari), C (30 Hari), D (21 Hari), E (15 Hari)
+                    # 2. Days Multiplier (Time Based - Asumsi Lead Time 30 Hari)
+                    # A: 33 Hari (1.1x)
+                    # B: 30 Hari (1.0x)
+                    # C: 24 Hari (0.8x - Sedikit di bawah sebulan)
+                    # D: 15 Hari (0.5x - Setengah bulan)
+                    # E: 7 Hari (0.25x - Seminggu)
                     days_map = {
-                        'A': 1.5, 'B': 1.25, 'C': 1.0, 
-                        'D': 0.7, 'E': 0.5, 'F': 0.0
+                        'A': 1.1, 'B': 1.0, 'C': 0.8, 
+                        'D': 0.5, 'E': 0.25, 'F': 0.0
                     }
                     return ss_map.get(kategori, 0), days_map.get(kategori, 1.0)
 
@@ -532,22 +525,21 @@ elif page == "Hasil Analisa Stock":
                     selected_method = st.selectbox(
                         "Pilih Metode Min Stock yang Digunakan untuk Status & PO:",
                         ["Min Stock (Flat)", "Min Stock (SS)", "Min Stock (Days)"],
-                        index=1, # Default ke SS (Hemat)
-                        help="Pilih metode acuan. 'Flat' = Murni WMA. 'SS' = WMA + Buffer (Hemat). 'Days' = WMA * Hari."
+                        index=1, 
+                        help="Metode Ultra-Lean. 'SS' = WMA + Buffer Tipis. 'Days' = WMA * Hari. C,D,E dipangkas drastis."
                     )
                 
                 final_result['Min Stock'] = final_result[selected_method]
 
                 # ==============================================================================
-                # [LOGIKA MAX STOCK]
+                # [LOGIKA MAX STOCK - ULTRA LEAN]
                 # ==============================================================================
                 def calculate_dynamic_max_stock(row):
                     min_val = row['Min Stock']
                     kategori = row.get('Kategori ABC (Log-Benchmark - WMA)', 'E')
-                    # A/B (Fast): 1.5x (Agar perputaran cepat)
-                    # C/D (Slow): 2.0x (Agar frekuensi order jarang)
-                    if kategori in ['A', 'B']: return min_val * 1.5
-                    elif kategori in ['C', 'D']: return min_val * 2.0
+                    # Max Stock disesuaikan juga agar tidak terlalu tinggi
+                    if kategori in ['A', 'B']: return min_val * 1.3 # Sebelumnya 1.5
+                    elif kategori in ['C', 'D']: return min_val * 1.5 # Sebelumnya 2.0
                     else: return min_val * 1.0
                 
                 final_result['Max Stock'] = final_result.apply(calculate_dynamic_max_stock, axis=1)
@@ -585,7 +577,6 @@ elif page == "Hasil Analisa Stock":
                 
                 # --- PEMBULATAN (INTEGER) ---
                 numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Add Stock', 'Suggest PO All', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO WMA', 'SO Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3']
-                # Tambahkan kolom baru agar ikut dibulatkan
                 numeric_cols.extend(['Min Stock (Flat)', 'Min Stock (SS)', 'Min Stock (Days)'])
                 numeric_cols.extend(bulan_columns_renamed)
 
@@ -652,7 +643,6 @@ elif page == "Hasil Analisa Stock":
                         ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3'] +
                         ['SO WMA', 'SO Mean', 'SO Total'] + 
                         ['Log (10) WMA', 'Avg Log WMA', 'Ratio Log WMA', 'Kategori ABC (Log-Benchmark - WMA)'] +
-                        # Variasi Min Stock
                         ['Min Stock (Flat)', 'Min Stock (SS)', 'Min Stock (Days)'] +
                         ['Min Stock', 'Max Stock', 'Stock Cabang', 'Status Stock', 'Add Stock', 'Suggested PO']
                     )
