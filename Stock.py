@@ -525,12 +525,32 @@ elif page == "Hasil Analisa Stock":
                 # [LOGIKA MAX STOCK - ULTRA LEAN]
                 # ==============================================================================
                 def calculate_dynamic_max_stock(row):
-                    min_val = row['Min Stock']
+                    # Basis perhitungan Max Stock menggunakan SO WMA (sesuai request)
+                    wma = row['SO WMA']
                     kategori = row.get('Kategori ABC (Log-Benchmark - WMA)', 'E')
-                    # Max Stock disesuaikan juga agar tidak terlalu tinggi
-                    if kategori in ['A', 'B']: return min_val * 1.5 # Sebelumnya 1.5
-                    elif kategori in ['C', 'D']: return min_val * 1.25 # Sebelumnya 2.0
-                    else: return min_val * 1.0
+                    
+                    # Aturan Multiplier Max Stock:
+                    # A & B : 2x SO WMA
+                    # C     : 1.5x SO WMA
+                    # D & E : 1x SO WMA
+                    
+                    if kategori in ['A', 'B']: 
+                        multiplier = 2.0
+                    elif kategori == 'C': 
+                        multiplier = 1.5
+                    elif kategori in ['D', 'E']: 
+                        multiplier = 1.0
+                    else: 
+                        multiplier = 0.0 # F atau lainnya
+                    
+                    raw_max = wma * multiplier
+                    
+                    # Pastikan Max Stock tidak lebih kecil dari Min Stock (safety logic)
+                    # min_stock = row['Min Stock']
+                    # if raw_max < min_stock: raw_max = min_stock
+                    
+                    # PEMBULATAN KE ATAS (CEILING)
+                    return math.ceil(raw_max)
                 
                 final_result['Max Stock'] = final_result.apply(calculate_dynamic_max_stock, axis=1)
 
@@ -1038,6 +1058,7 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
 
