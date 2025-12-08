@@ -487,9 +487,9 @@ elif page == "Hasil Analisa Stock":
                         'A': 1, 'B': 1, 'C': 0.75, 
                         'D': 0.5, 'E': 0.25, 'F': 0.0
                     }
-                    return ss_map.get(kategori, 0), days_map.get(kategori, 1.0)
+                    return days_map.get(kategori, 1.0)
 
-                def calculate_all_min_stocks(row):
+                def calculate_min_stock_days_only(row):
                     wma = row['SO WMA']
                     cat = row.get('Kategori ABC (Log-Benchmark - WMA)', 'E')
                     if wma <= 0: 
@@ -505,6 +505,20 @@ elif page == "Hasil Analisa Stock":
 
                 final_result['Min Stock'] = final_result.apply(calculate_min_stock_days_only, axis=1)
 
+                # ==============================================================================
+                # [KONFIGURASI] Informasi Metode Aktif (Tampilan Saja)
+                # ==============================================================================
+                st.markdown("### ⚙️ Konfigurasi Stok Minimal")
+                st.info("""
+                ✅ **Metode Terkunci: Min Stock (Days / Time Based)**
+                
+                Perhitungan otomatis menggunakan multiplier waktu (WMA × Hari):
+                * **A & B:** 1.0x (Buffer 30 Hari)
+                * **C:** 0.75x (Buffer 24 Hari)
+                * **D:** 0.50x (Buffer 15 Hari)
+                * **E:** 0.25x (Buffer 7 Hari)
+                """)
+                
                 # ==============================================================================
                 # [LOGIKA MAX STOCK - ULTRA LEAN]
                 # ==============================================================================
@@ -1022,5 +1036,6 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
