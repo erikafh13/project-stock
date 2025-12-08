@@ -499,9 +499,11 @@ elif page == "Hasil Analisa Stock":
                     day_mult = get_days_multiplier(cat)
                     
                     # Hitung Min Stock (WMA * Multiplier Hari)
-                    min_days = wma * day_mult
+                    raw_min = wma * day_mult
                     
-                    return min_days
+                    # PEMBULATAN KE ATAS (CEILING)
+                    # Contoh: 2.1 jadi 3, 4.8 jadi 5
+                    return math.ceil(raw_min)
 
                 final_result['Min Stock'] = final_result.apply(calculate_min_stock_days_only, axis=1)
 
@@ -1036,6 +1038,7 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
 
