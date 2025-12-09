@@ -330,12 +330,12 @@ elif page == "Hasil Analisa Stock":
         colors = {'Understock': '#fff3cd', 'Balance': '#d4edda', 'Overstock': '#ffd6a5', 'Overstock F': '#f5c6cb'}
         return f'background-color: {colors.get(val, "")}'
 
-    def hitung_po_cabang_baru(stock_surabaya, stock_cabang, stock_total, suggest_po_all, so_cabang, add_stock_cabang):
+    def hitung_po_cabang_baru(stock_surabaya, stock_cabang, stock_total, total_add_stock_all, so_cabang, add_stock_cabang):
         try:
-            if stock_surabaya < stock_cabang: return 0
+            if stock_surabaya < add_stock_cabang: return 0
             kebutuhan_30_hari = (so_cabang / 30) * 30
             kondisi_3_terpenuhi = stock_cabang < kebutuhan_30_hari
-            kondisi_2_terpenuhi = stock_total < suggest_po_all
+            kondisi_2_terpenuhi = stock_total < total_add_stock_all
             if kondisi_2_terpenuhi and kondisi_3_terpenuhi:
                 if stock_total > 0:
                     ideal_po = ((stock_cabang + add_stock_cabang) / stock_total * stock_surabaya) - stock_cabang
@@ -576,17 +576,19 @@ elif page == "Hasil Analisa Stock":
                 
                 stock_surabaya = stock_melted[stock_melted['City'] == 'SURABAYA'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
                 stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
-                suggest_po_all_df = final_result.groupby('No. Barang')['Add Stock'].sum().reset_index(name='Suggest PO All')
+                total_req_df = final_result.groupby('No. Barang')['Add Stock'].sum().reset_index(name='Total Add Stock All')
                 
+                # Merge Data Pendukung ke Tabel Utama
                 final_result = final_result.merge(stock_surabaya, on='No. Barang', how='left')
                 final_result = final_result.merge(stock_total, on='No. Barang', how='left')
-                final_result = final_result.merge(suggest_po_all_df, on='No. Barang', how='left')
+                final_result = final_result.merge(total_req_df, on='No. Barang', how='left') # Merge Total Permintaan
+                
                 final_result.fillna(0, inplace=True)
                 
-                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang_baru(stock_surabaya=row['Stock Surabaya'], stock_cabang=row['Stock Cabang'], stock_total=row['Stock Total'], suggest_po_all=row['Suggest PO All'], so_cabang=row['SO WMA'], add_stock_cabang=row['Add Stock']), axis=1)
+                final_result['Suggested PO'] = final_result.apply(lambda row: hitung_po_cabang_baru(stock_surabaya=row['Stock Surabaya'], stock_cabang=row['Stock Cabang'], stock_total=row['Stock Total'], total_add_stock_all=row['Total Add Stock All'], so_cabang=row['SO WMA'], add_stock_cabang=row['Add Stock']), axis=1)
                 
                 # --- PEMBULATAN (INTEGER) ---
-                numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Add Stock', 'Suggest PO All', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO WMA', 'SO Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3']
+                numeric_cols = ['Stock Cabang', 'Min Stock', 'Max Stock', 'Add Stock', 'Total Add Stock All', 'Suggest PO All', 'Suggested PO', 'Stock Surabaya', 'Stock Total', 'SO WMA', 'SO Mean', 'Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3']
                 numeric_cols.extend(['Min Stock (Flat)', 'Min Stock (SS)', 'Min Stock (Days)'])
                 numeric_cols.extend(bulan_columns_renamed)
 
@@ -709,6 +711,7 @@ elif page == "Hasil Analisa Stock":
                     total_agg = final_result_display.groupby(keys).agg(
                         All_Stock=('Stock Cabang', 'sum'), 
                         All_SO=('SO WMA', 'sum'),
+                        All_Add_Stock=('Add Stock', 'sum'),
                         All_Suggested_PO=('Suggested PO', 'sum')
                     ).reset_index()
                     
@@ -722,7 +725,7 @@ elif page == "Hasil Analisa Stock":
                     pivot_result = pd.merge(pivot_result, total_agg, on=keys, how='left')
                     pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Kategori ABC All']], on=keys, how='left')
                     
-                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
+                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
                     df_to_style = pivot_result[final_display_cols].copy()
@@ -1058,6 +1061,7 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
 
