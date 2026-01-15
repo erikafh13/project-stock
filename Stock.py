@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 st.set_page_config(layout="wide", page_title="Analisis Stock & ABC")
 
 # --- SIDEBAR ---
-st.sidebar.image("https://i.imgur.com/n0KzG1p.png", use_container_width=True)
+st.sidebar.image("https://eq-cdn.equiti-me.com/website/images/What_does_a_stock_split_mean.2e16d0ba.fill-1600x900.jpg", use_container_width=True)
 st.sidebar.title("Analisis Stock dan ABC")
 
 page = st.sidebar.radio(
@@ -1061,6 +1061,7 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
 
