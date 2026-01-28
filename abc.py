@@ -12,7 +12,7 @@ import os
 import re
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
-import xgboost as xgb # Library tambahan untuk XGBoost
+import xgboost as xgb  # Library tambahan untuk XGBoost
 
 # Konfigurasi awal halaman Streamlit
 st.set_page_config(layout="wide", page_title="Analisis Stock & ABC - Hybrid XGBoost")
@@ -204,13 +204,16 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     return df
 
 # =====================================================================================
-# 			 			 	 	 MODUL HYBRID XGBOOST
+# 			 			 	 	 MODUL HYBRID XGBOOST (FIXED)
 # =====================================================================================
 
 # 1. PREPROCESSING DATA
 def preprocess_data_xgb(df_penjualan):
     d_clean = df_penjualan.copy()
-    d_clean['Tgl Faktur'] = pd.to_datetime(d_clean['Tgl Faktur'])
+    # [FIX] Pastikan konversi tipe data yang ketat (errors='coerce' akan mengubah error jadi NaN)
+    d_clean['Tgl Faktur'] = pd.to_datetime(d_clean['Tgl Faktur'], errors='coerce')
+    d_clean['Kuantitas'] = pd.to_numeric(d_clean['Kuantitas'], errors='coerce')
+    
     d_clean = d_clean.dropna(subset=['Tgl Faktur', 'Kuantitas'])
     d_clean = d_clean.sort_values(by='Tgl Faktur', ascending=True)
     return d_clean
@@ -317,22 +320,31 @@ def predict_hybrid_so(df_penjualan, list_sku_city):
 
     full_train_df = pd.concat(all_train_data)
     
+    # [FIX] Reset Index sangat penting agar tidak ada index duplikat yang membingungkan XGBoost
+    full_train_df.reset_index(drop=True, inplace=True)
+    
     # Define Features
     features = ['SO_WMA_t', 'Demand_t1', 'Demand_t7', 'Demand_t30', 
                 'RollingMean_7', 'RollingMean_30', 'RollingStd_30', 'DayOfWeek', 'Month']
     
     X = full_train_df[features]
-    y = full_train_df['target'] # Target is already log-transformed
+    y = full_train_df['target'] 
     
+    # [FIX] Konversi ke Numpy Array (.values) dan float untuk menghindari error metadata Pandas dan tipe object
+    X_np = X.astype(float).values
+    y_np = y.astype(float).values
+
     # 4. Train XGBoost
     model = xgb.XGBRegressor(
         n_estimators=100,
         learning_rate=0.05,
-        max_depth=4, # Reduce depth slightly to prevent overfitting on specific spikes
+        max_depth=4, 
         objective='reg:squarederror',
         n_jobs=-1
     )
-    model.fit(X, y)
+    
+    # Gunakan numpy array untuk fit
+    model.fit(X_np, y_np)
     
     # 5. Predict Hybrid
     my_bar.progress(0.9, text="Generating Hybrid Forecast...")
@@ -344,7 +356,9 @@ def predict_hybrid_so(df_penjualan, list_sku_city):
             so_hybrid = feat['SO_WMA_t'].values[0] if 'SO_WMA_t' in feat else 0
         else:
             # Prediksi (Log Space)
-            pred_log = model.predict(feat[features])[0]
+            # Pastikan input prediksi juga float numpy array
+            feat_X = feat[features].astype(float).values
+            pred_log = model.predict(feat_X)[0]
             # Inverse Transform (Exp)
             so_hybrid = np.expm1(pred_log)
             
