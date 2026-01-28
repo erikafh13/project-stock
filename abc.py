@@ -217,27 +217,43 @@ def preprocess_data_xgb(df_penjualan):
 
 # 2. PERHITUNGAN WMA (BASELINE) - Digunakan di dalam Build Features
 def compute_wma_value(series, weights):
+    # series adalah array numpy dari penjualan harian
     if len(series) < len(weights):
-        return series.mean() if len(series) > 0 else 0
+        # Jika data kurang dari 90 hari, ambil rata-rata saja sebagai fallback
+        return series.mean() * 30 if len(series) > 0 else 0 
+        # *30 karena compute_wma_value ekspektasinya skala bulanan (weights sum=30)
+    
     return np.dot(series[-len(weights):], weights)
 
 # 3. FEATURE ENGINEERING UNTUK XGBOOST
-def build_features_xgb(df_daily, city, sku, weights):
+def build_features_xgb(df_daily_all, city, sku, weights, min_date, max_date):
     # Filter data spesifik SKU dan City
-    sku_data = df_daily[(df_daily['City'] == city) & (df_daily['No. Barang'] == sku)].copy()
+    sku_data = df_daily_all[(df_daily_all['City'] == city) & (df_daily_all['No. Barang'] == sku)].copy()
     
-    # [FIXED] Butuh data lebih panjang karena Lag 30 dan Target shift(-30)
-    # Total minimal = 30 (Lags) + 30 (Target) = 60 hari aman
+    # [FIX CRITICAL BUG] Reindexing Date agar continuous (mengisi hari kosong dengan 0)
+    if sku_data.empty:
+        return pd.DataFrame(), None
+        
+    sku_data.set_index('Tgl Faktur', inplace=True)
+    full_idx = pd.date_range(start=min_date, end=max_date, freq='D')
+    sku_data = sku_data.reindex(full_idx, fill_value=0)
+    sku_data['City'] = city
+    sku_data['No. Barang'] = sku
+    sku_data.index.name = 'Tgl Faktur'
+    sku_data = sku_data.reset_index()
+    
+    # Total minimal = 30 (Lags) + 30 (Target) = 60 hari aman untuk training
     if len(sku_data) < 60:
         return pd.DataFrame(), None
 
-    # [FIXED] Target y_t = Total Actual Demand t+1 sampai t+30 (Rolling Future Sum)
-    # Ini mencegah prediksi harian yang fluktuatif (0 atau lonjakan sesaat)
-    sku_data['target'] = sku_data['Kuantitas'].rolling(window=30, min_periods=15).sum().shift(-30)
+    # [TARGET LOG-TRANSFORM] Menggunakan Log-Space untuk mengurangi dampak outlier
+    # Target = Rolling Sum 30 Hari ke depan
+    rolling_future = sku_data['Kuantitas'].rolling(window=30, min_periods=1).sum().shift(-30)
+    sku_data['target'] = np.log1p(rolling_future) # Log Transformation
     
-    # Lag Features
+    # Lag Features (Harian)
+    sku_data['Demand_t1'] = sku_data['Kuantitas'].shift(1)
     sku_data['Demand_t7'] = sku_data['Kuantitas'].shift(7)
-    sku_data['Demand_t14'] = sku_data['Kuantitas'].shift(14)
     sku_data['Demand_t30'] = sku_data['Kuantitas'].shift(30)
     
     # Rolling Statistics
@@ -249,15 +265,16 @@ def build_features_xgb(df_daily, city, sku, weights):
     sku_data['DayOfWeek'] = sku_data['Tgl Faktur'].dt.dayofweek
     sku_data['Month'] = sku_data['Tgl Faktur'].dt.month
     
-    # SO_WMA Feature (Rolling WMA)
-    # Kita hitung SO_WMA sebagai representasi "kecepatan" saat itu
+    # SO_WMA Feature (Rolling WMA) - Pastikan scale-nya match
+    # Kita apply rolling window 90 hari, lalu dot product
     sku_data['SO_WMA_t'] = sku_data['Kuantitas'].rolling(window=90).apply(lambda x: compute_wma_value(x, weights), raw=True)
     
-    # Data untuk training (hapus baris dengan NaN akibat shift/rolling)
+    # Data untuk training (hapus baris dengan NaN)
+    # Target NaN di 30 hari terakhir (karena shift -30), Features NaN di awal
     train_data = sku_data.dropna(subset=['target', 'SO_WMA_t', 'RollingStd_30'])
     
-    # Data terakhir untuk prediksi masa depan (H=30)
-    latest_feature = sku_data.tail(1).copy()
+    # Data terakhir untuk prediksi (hari ini)
+    latest_feature = sku_data.iloc[[-1]].copy() # Ambil baris terakhir
     
     return train_data, latest_feature
 
@@ -266,17 +283,21 @@ def predict_hybrid_so(df_penjualan, list_sku_city):
     # Agregasi penjualan harian
     df_daily = df_penjualan.groupby(['City', 'No. Barang', 'Tgl Faktur'])['Kuantitas'].sum().reset_index()
     
-    # Penyiapan bobot WMA
-    w = [0.2]*30 + [0.3]*30 + [0.5]*30 # Simplifikasi representatif 90 hari
+    # Tentukan range tanggal global untuk reindexing
+    min_date = df_daily['Tgl Faktur'].min()
+    max_date = df_daily['Tgl Faktur'].max()
+    
+    # Penyiapan bobot WMA (Sum = 30, Skala Bulanan)
+    w = [0.2]*30 + [0.3]*30 + [0.5]*30 
     
     results = []
     
-    # Progress bar untuk UX
+    # Progress bar
     progress_text = "Menjalankan Algorithm Hybrid_WMA_XGBoost_Forecasting..."
     my_bar = st.progress(0, text=progress_text)
     total = len(list_sku_city)
     
-    # Training Global Model (Bukan per SKU agar lebih general dan cepat)
+    # Training Global Model
     all_train_data = []
     latest_features_map = {}
 
@@ -284,41 +305,52 @@ def predict_hybrid_so(df_penjualan, list_sku_city):
         if i % 50 == 0:
             my_bar.progress(i/total, text=f"{progress_text} (Building Features {i}/{total})")
             
-        train_df, latest_f = build_features_xgb(df_daily, city, sku, w)
+        train_df, latest_f = build_features_xgb(df_daily, city, sku, w, min_date, max_date)
         if not train_df.empty:
             all_train_data.append(train_df)
         if latest_f is not None:
             latest_features_map[(city, sku)] = latest_f
 
     if not all_train_data:
-        return pd.DataFrame()
+        my_bar.empty()
+        return pd.DataFrame() # Return empty if no training data
 
     full_train_df = pd.concat(all_train_data)
     
     # Define Features
-    features = ['SO_WMA_t', 'Demand_t7', 'Demand_t14', 'Demand_t30', 
+    features = ['SO_WMA_t', 'Demand_t1', 'Demand_t7', 'Demand_t30', 
                 'RollingMean_7', 'RollingMean_30', 'RollingStd_30', 'DayOfWeek', 'Month']
     
     X = full_train_df[features]
-    y = full_train_df['target']
+    y = full_train_df['target'] # Target is already log-transformed
     
     # 4. Train XGBoost
     model = xgb.XGBRegressor(
         n_estimators=100,
         learning_rate=0.05,
-        max_depth=5,
-        objective='reg:squarederror'
+        max_depth=4, # Reduce depth slightly to prevent overfitting on specific spikes
+        objective='reg:squarederror',
+        n_jobs=-1
     )
     model.fit(X, y)
     
     # 5. Predict Hybrid
     my_bar.progress(0.9, text="Generating Hybrid Forecast...")
+    
     for (city, sku), feat in latest_features_map.items():
-        # Prediksi
-        pred_val = model.predict(feat[features])[0]
-        
-        # [FIXED] Tidak dikali 30 lagi karena target sudah Rolling Sum 30 Hari
-        so_hybrid = max(0, pred_val)
+        # Cek kelengkapan fitur pada data terakhir
+        if feat[features].isnull().values.any():
+            # Fallback ke WMA jika fitur incomplete (misal data baru < 90 hari)
+            so_hybrid = feat['SO_WMA_t'].values[0] if 'SO_WMA_t' in feat else 0
+        else:
+            # Prediksi (Log Space)
+            pred_log = model.predict(feat[features])[0]
+            # Inverse Transform (Exp)
+            so_hybrid = np.expm1(pred_log)
+            
+        # Pastikan tidak negatif dan handling NaN
+        so_hybrid = max(0, float(so_hybrid))
+        if pd.isna(so_hybrid): so_hybrid = 0
         
         results.append({'City': city, 'No. Barang': sku, 'SO Hybrid': so_hybrid})
     
