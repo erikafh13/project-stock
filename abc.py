@@ -225,11 +225,15 @@ def compute_wma_value(series, weights):
 def build_features_xgb(df_daily, city, sku, weights):
     # Filter data spesifik SKU dan City
     sku_data = df_daily[(df_daily['City'] == city) & (df_daily['No. Barang'] == sku)].copy()
-    if len(sku_data) < 31:
+    
+    # [FIXED] Butuh data lebih panjang karena Lag 30 dan Target shift(-30)
+    # Total minimal = 30 (Lags) + 30 (Target) = 60 hari aman
+    if len(sku_data) < 60:
         return pd.DataFrame(), None
 
-    # Target y_t = Actual Demand t+1 (Geser ke atas)
-    sku_data['target'] = sku_data['Kuantitas'].shift(-1)
+    # [FIXED] Target y_t = Total Actual Demand t+1 sampai t+30 (Rolling Future Sum)
+    # Ini mencegah prediksi harian yang fluktuatif (0 atau lonjakan sesaat)
+    sku_data['target'] = sku_data['Kuantitas'].rolling(window=30, min_periods=15).sum().shift(-30)
     
     # Lag Features
     sku_data['Demand_t7'] = sku_data['Kuantitas'].shift(7)
@@ -310,10 +314,12 @@ def predict_hybrid_so(df_penjualan, list_sku_city):
     # 5. Predict Hybrid
     my_bar.progress(0.9, text="Generating Hybrid Forecast...")
     for (city, sku), feat in latest_features_map.items():
-        # Prediksi nilai harian
-        pred_daily = model.predict(feat[features])[0]
-        # Konversi ke SO 30 Hari (H=30)
-        so_hybrid = max(0, pred_daily * 30)
+        # Prediksi
+        pred_val = model.predict(feat[features])[0]
+        
+        # [FIXED] Tidak dikali 30 lagi karena target sudah Rolling Sum 30 Hari
+        so_hybrid = max(0, pred_val)
+        
         results.append({'City': city, 'No. Barang': sku, 'SO Hybrid': so_hybrid})
     
     my_bar.empty()
@@ -735,7 +741,7 @@ elif page == "Hasil Analisa Stock":
             
             st.header("📊 Tabel Gabungan")
             st.dataframe(final_result_display, use_container_width=True)
-
+            
             # --- FITUR DOWNLOAD ---
             st.markdown("---")
             st.header("💾 Unduh Hasil Analisis")
