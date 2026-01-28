@@ -736,6 +736,30 @@ elif page == "Hasil Analisa Stock":
             st.header("📊 Tabel Gabungan")
             st.dataframe(final_result_display, use_container_width=True)
 
+            # --- FITUR DOWNLOAD ---
+            st.markdown("---")
+            st.header("💾 Unduh Hasil Analisis")
+            
+            # Persiapan data Excel
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                # Sheet 1: Data Gabungan yang difilter
+                final_result_display.to_excel(writer, sheet_name='Analisis_Hybrid_Summary', index=False)
+                
+                # Sheet per Kota (hanya jika ada data)
+                for city in sorted(final_result_display['City'].unique()):
+                    city_data = final_result_display[final_result_display['City'] == city]
+                    sheet_name = city[:31] # Limit excel sheet name length
+                    city_data.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            st.download_button(
+                label="📥 Unduh Hasil Analisis (Excel)",
+                data=output.getvalue(),
+                file_name=f"Hasil_Analisis_Hybrid_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help="Klik untuk mengunduh seluruh hasil analisis dalam format Excel."
+            )
+
 elif page == "Hasil Analisa ABC":
     st.title("📊 Analisis ABC Hybrid (XGBoost)")
     st.info("Fitur Analisis ABC kini terintegrasi dengan SO Hybrid pada menu Analisis Stock.")
