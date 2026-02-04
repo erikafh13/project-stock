@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
+import io
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Sistem Bundling PC", layout="wide")
@@ -117,7 +118,6 @@ if uploaded_file:
     data = process_data(raw_df)
     
     # Filter: Hanya tampilkan produk yang masuk dalam kategori yang dianalisis
-    # (Setidaknya salah satu kategori bernilai True)
     analyzed_only = data[
         (data['Office'] == True) | 
         (data['Gaming Standard / Design 2D'] == True) | 
@@ -126,22 +126,22 @@ if uploaded_file:
 
     # --- BAGIAN 1: TAMPILKAN DATA STOK & PENGKATEGORIAN ---
     st.subheader("📊 Analisis Stok & Kategori Otomatis")
-    st.markdown("Menampilkan semua produk (termasuk stok 0) yang berhasil dikategorikan oleh sistem.")
+    st.markdown("Menampilkan produk yang teridentifikasi oleh sistem (termasuk stok 0).")
     
-    # Menentukan kolom kategori untuk ditampilkan sebagai checkbox
     category_cols = ['Office', 'Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']
-    
-    # Mengambil kolom stok yang ada di dataset
     stock_cols = [col for col in analyzed_only.columns if 'Stock' in col]
     display_cols = ['Nama Accurate', 'Kategori'] + stock_cols + ['Web'] + category_cols
     
-    # Tombol Download
-    csv = analyzed_only[display_cols].to_csv(index=False).encode('utf-8')
+    # Fitur Download Excel (.xlsx)
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        analyzed_only[display_cols].to_excel(writer, index=False, sheet_name='Analisis Bundling')
+    
     st.download_button(
-        label="📥 Download Hasil Analisis (.csv)",
-        data=csv,
-        file_name='hasil_analisis_bundling.csv',
-        mime='text/csv',
+        label="📥 Download Hasil Analisis (.xlsx)",
+        data=buffer.getvalue(),
+        file_name='hasil_analisis_bundling.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
     
     # Tampilan Tabel
@@ -167,8 +167,7 @@ if uploaded_file:
         horizontal=True
     )
     
-    # Untuk pemilihan komponen, kita filter stok > 0 agar user tidak memilih barang kosong
-    # Namun data analisis di atas tetap menampilkan semua stok.
+    # Filter stok > 0 untuk pemilihan komponen di sistem bundling
     filtered_data = analyzed_only[
         (analyzed_only[bundle_type] == True) & 
         (analyzed_only['Stock Total'] > 0)
