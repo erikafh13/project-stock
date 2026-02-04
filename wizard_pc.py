@@ -10,10 +10,10 @@ st.markdown("Analisis stok dan pilih komponen berdasarkan kategori kebutuhan.")
 
 # --- FUNGSI PEMROSESAN DATA ---
 def process_data(df):
-    # Filter Stock > 0 dan pembersihan data dasar
-    df = df[df['Stock Total'] > 0].copy()
+    # Membersihkan data dasar (Stok 0 tetap diikutkan sesuai permintaan)
     df['Nama Accurate'] = df['Nama Accurate'].fillna('')
     df['Web'] = pd.to_numeric(df['Web'], errors='coerce').fillna(0)
+    df['Stock Total'] = pd.to_numeric(df['Stock Total'], errors='coerce').fillna(0)
     
     # Inisialisasi Kolom Kategori Baru
     df['Office'] = False
@@ -108,7 +108,7 @@ def process_data(df):
 uploaded_file = st.file_uploader("Upload Data Portal (CSV atau XLSX)", type=["csv", "xlsx"])
 
 if uploaded_file:
-    # Cek ekstensi file untuk menentukan fungsi pembacaan data
+    # Cek ekstensi file
     if uploaded_file.name.endswith('.csv'):
         raw_df = pd.read_csv(uploaded_file)
     else:
@@ -116,20 +116,37 @@ if uploaded_file:
         
     data = process_data(raw_df)
     
+    # Filter: Hanya tampilkan produk yang masuk dalam kategori yang dianalisis
+    # (Setidaknya salah satu kategori bernilai True)
+    analyzed_only = data[
+        (data['Office'] == True) | 
+        (data['Gaming Standard / Design 2D'] == True) | 
+        (data['Gaming Advanced / Design 3D'] == True)
+    ].copy()
+
     # --- BAGIAN 1: TAMPILKAN DATA STOK & PENGKATEGORIAN ---
     st.subheader("📊 Analisis Stok & Kategori Otomatis")
-    st.markdown("Berikut adalah daftar produk dengan tanda centang sesuai kategori yang ditentukan sistem.")
+    st.markdown("Menampilkan semua produk (termasuk stok 0) yang berhasil dikategorikan oleh sistem.")
     
     # Menentukan kolom kategori untuk ditampilkan sebagai checkbox
     category_cols = ['Office', 'Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']
     
     # Mengambil kolom stok yang ada di dataset
-    stock_cols = [col for col in data.columns if 'Stock' in col]
+    stock_cols = [col for col in analyzed_only.columns if 'Stock' in col]
     display_cols = ['Nama Accurate', 'Kategori'] + stock_cols + ['Web'] + category_cols
     
-    # Mengatur format tampilan tabel
+    # Tombol Download
+    csv = analyzed_only[display_cols].to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Download Hasil Analisis (.csv)",
+        data=csv,
+        file_name='hasil_analisis_bundling.csv',
+        mime='text/csv',
+    )
+    
+    # Tampilan Tabel
     st.dataframe(
-        data[display_cols],
+        analyzed_only[display_cols],
         column_config={
             "Web": st.column_config.NumberColumn("Harga Web", format="Rp %d"),
             "Office": st.column_config.CheckboxColumn("Office"),
@@ -142,19 +159,23 @@ if uploaded_file:
 
     st.divider()
 
-    # --- BAGIAN 2: PILIH KATEGORI BUNDLING UNTUK KONFIGURASI ---
+    # --- BAGIAN 2: KONFIGURATOR BUNDLING ---
     st.subheader("🛠️ Konfigurator Bundling")
     bundle_type = st.radio(
-        "Pilih Fokus Kategori PC untuk Pemilihan Komponen:", 
+        "Pilih Fokus Kategori PC:", 
         ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"],
         horizontal=True
     )
     
-    # Filter data berdasarkan kategori bundle dan urutkan harga
-    filtered_data = data[data[bundle_type] == True].sort_values('Web')
+    # Untuk pemilihan komponen, kita filter stok > 0 agar user tidak memilih barang kosong
+    # Namun data analisis di atas tetap menampilkan semua stok.
+    filtered_data = analyzed_only[
+        (analyzed_only[bundle_type] == True) & 
+        (analyzed_only['Stock Total'] > 0)
+    ].sort_values('Web')
 
     if filtered_data.empty:
-        st.error(f"Maaf, tidak ada stok tersedia untuk kategori {bundle_type}.")
+        st.warning(f"Tidak ada stok tersedia (> 0) untuk kategori {bundle_type} saat ini.")
     else:
         col1, col2 = st.columns([2, 1])
         
@@ -220,7 +241,6 @@ if uploaded_file:
                     st.success("Casing sudah termasuk PSU.")
 
         with col2:
-            # --- RINGKASAN BUNDLE ---
             st.markdown("### 📋 Ringkasan")
             total_price = 0
             for part, row in selected_bundle.items():
@@ -236,4 +256,4 @@ if uploaded_file:
                 st.success("Fitur Cetak segera hadir!")
 
 else:
-    st.info("Silakan upload file CSV atau XLSX Data Portal untuk memulai analisis stok dan bundling.")
+    st.info("Silakan upload file CSV atau XLSX Data Portal untuk memulai.")
