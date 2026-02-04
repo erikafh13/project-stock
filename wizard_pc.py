@@ -105,20 +105,25 @@ def process_data(df):
     return df
 
 # --- INPUT DATA ---
-uploaded_file = st.file_uploader("Upload Data Portal (CSV)", type="csv")
+uploaded_file = st.file_uploader("Upload Data Portal (CSV atau XLSX)", type=["csv", "xlsx"])
 
 if uploaded_file:
-    raw_df = pd.read_csv(uploaded_file)
+    # Cek ekstensi file untuk menentukan fungsi pembacaan data
+    if uploaded_file.name.endswith('.csv'):
+        raw_df = pd.read_csv(uploaded_file)
+    else:
+        raw_df = pd.read_excel(uploaded_file)
+        
     data = process_data(raw_df)
     
-    # --- BAGIAN 1: TAMPILKAN DATA STOK & PENGKATEGORIAN (SEBELUM PILIH KATEGORI) ---
+    # --- BAGIAN 1: TAMPILKAN DATA STOK & PENGKATEGORIAN ---
     st.subheader("📊 Analisis Stok & Kategori Otomatis")
     st.markdown("Berikut adalah daftar produk dengan tanda centang sesuai kategori yang ditentukan sistem.")
     
     # Menentukan kolom kategori untuk ditampilkan sebagai checkbox
     category_cols = ['Office', 'Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']
     
-    # Mengambil kolom stok yang ada di dataset (dinamis berdasarkan screenshot user)
+    # Mengambil kolom stok yang ada di dataset
     stock_cols = [col for col in data.columns if 'Stock' in col]
     display_cols = ['Nama Accurate', 'Kategori'] + stock_cols + ['Web'] + category_cols
     
@@ -231,4 +236,4 @@ if uploaded_file:
                 st.success("Fitur Cetak segera hadir!")
 
 else:
-    st.info("Silakan upload file CSV Data Portal untuk memulai analisis stok dan bundling.")
+    st.info("Silakan upload file CSV atau XLSX Data Portal untuk memulai analisis stok dan bundling.")
