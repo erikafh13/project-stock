@@ -719,10 +719,10 @@ elif page == "Hasil Analisa Stock":
                     all_sales_for_abc = (
                         pivot_result
                         .groupby(keys, as_index=False)
-                        .agg({'All_SO': 'mean'})
+                        .agg({'SO WMA': 'mean'})
                     )
 
-                    all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
+                    all_sales_for_abc.rename(columns={'SO WMA': 'Total Kuantitas'}, inplace=True)
                     all_sales_for_abc['City'] = 'ALL'
 
                     all_classified = classify_abc_log_benchmark(all_sales_for_abc, metric_col='Total Kuantitas') 
@@ -1068,6 +1068,7 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
 
