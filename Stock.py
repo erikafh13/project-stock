@@ -714,10 +714,13 @@ elif page == "Hasil Analisa Stock":
                         All_Add_Stock=('Add Stock', 'sum'),
                         All_Suggested_PO=('Suggested PO', 'sum')
                     ).reset_index()
+
+                    # Pastikan tidak ada spasi aneh
+                    final_result_display.columns = final_result_display.columns.str.strip()
                     
                     # Hitung rata-rata SO antar cabang
                     all_sales_for_abc = (
-                        pivot_result
+                        final_result_display
                         .groupby(keys, as_index=False)
                         .agg({'SO WMA': 'mean'})
                     )
@@ -1068,6 +1071,7 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
 
