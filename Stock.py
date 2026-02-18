@@ -715,9 +715,16 @@ elif page == "Hasil Analisa Stock":
                         All_Suggested_PO=('Suggested PO', 'sum')
                     ).reset_index()
                     
-                    all_sales_for_abc = total_agg.copy()
+                    # Hitung rata-rata SO antar cabang
+                    all_sales_for_abc = (
+                        pivot_result
+                        .groupby(keys, as_index=False)
+                        .agg({'All_SO': 'mean'})
+                    )
+
                     all_sales_for_abc.rename(columns={'All_SO': 'Total Kuantitas'}, inplace=True)
-                    all_sales_for_abc['City'] = 'ALL' 
+                    all_sales_for_abc['City'] = 'ALL'
+
                     all_classified = classify_abc_log_benchmark(all_sales_for_abc, metric_col='Total Kuantitas') 
                     all_classified.rename(columns={'Kategori ABC (Log-Benchmark - Total Kuantitas)': 'All_Kategori ABC All'}, inplace=True)
                     total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
@@ -1061,6 +1068,7 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
 
