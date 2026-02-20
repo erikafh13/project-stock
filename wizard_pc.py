@@ -15,26 +15,33 @@ st.markdown("""
         background-color: white;
         margin-bottom: 20px;
         transition: 0.3s;
+        height: 100%;
     }
     .bundle-card:hover {
-        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+        box-shadow: 0 4px 12px 0 rgba(0,0,0,0.15);
+        border-color: #1E88E5;
     }
     .price-text {
         color: #1E88E5;
-        font-size: 20px;
+        font-size: 22px;
         font-weight: bold;
+        margin: 10px 0;
+    }
+    .bundle-title {
+        color: #333;
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 5px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNGSI PEMROSESAN DATA (MENGGUNAKAN ATURAN LAMA FIRMAN) ---
+# --- FUNGSI PEMROSESAN DATA (ATURAN FIRMAN) ---
 def process_data(df):
-    # Filter Stock > 0 dan pembersihan data dasar sesuai kode lama
     df = df[df['Stock Total'] > 0].copy()
     df['Nama Accurate'] = df['Nama Accurate'].fillna('')
     df['Web'] = pd.to_numeric(df['Web'], errors='coerce').fillna(0)
     
-    # Inisialisasi Kolom Kategori Baru
     df['Office'] = False
     df['Gaming Standard / Design 2D'] = False
     df['Gaming Advanced / Design 3D'] = False
@@ -123,49 +130,58 @@ def process_data(df):
     
     return df
 
-# --- FUNGSI GENERATE REKOMENDASI (DINAMIS UNTUK SEMUA KATEGORI) ---
-def generate_bundles(df, branch_col, usage_cat, target_price_min, target_price_max):
-    # Filter stok tersedia di cabang dan kategori penggunaan
+# --- FUNGSI GENERATE MULTIPLE REKOMENDASI ---
+def generate_multiple_bundles(df, branch_col, usage_cat, target_price_min, target_price_max):
     available_df = df[(df[branch_col] > 0) & (df[usage_cat] == True)].copy()
-    
-    # Ambil SEMUA kategori unik yang ada di data tersebut
     all_available_categories = sorted(available_df['Kategori'].unique().tolist())
     
     options = {}
     for cat in all_available_categories:
-        # Urutkan berdasarkan stok tertinggi (Push Stock)
-        cat_items = available_df[available_df['Kategori'] == cat].sort_values(by=[branch_col, 'Web'], ascending=[False, True])
-        if not cat_items.empty:
-            options[cat] = cat_items
+        options[cat] = available_df[available_df['Kategori'] == cat].sort_values(by=[branch_col, 'Web'], ascending=[False, True])
 
-    recommendations = []
+    results = []
     
-    # Rekomendasi 1: Prioritas Stok Tertinggi di Semua Kategori
-    bundle_high_stock = {}
-    total_high_stock = 0
-    for cat, items in options.items():
-        pick = items.iloc[0]
-        bundle_high_stock[cat] = pick
-        total_high_stock += pick['Web']
-    
-    if target_price_min <= total_high_stock <= target_price_max:
-        recommendations.append({"name": "High Stock Priority (All Items)", "parts": bundle_high_stock, "total": total_high_stock})
+    # Logic untuk membuat hingga 6 variasi bundel
+    bundle_types = [
+        {"name": "Ultra Stock Priority", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 0},
+        {"name": "Popular Choice", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 1},
+        {"name": "Alternative High Stock", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 2},
+        {"name": "Budget Value", "sort_by": ['Web', branch_col], "ascending": [True, False], "idx": 0},
+        {"name": "Balanced Pick", "sort_by": ['Web', branch_col], "ascending": [True, False], "idx": "mid"},
+        {"name": "Premium Selection", "sort_by": ['Web', branch_col], "ascending": [False, False], "idx": 0}
+    ]
 
-    # Rekomendasi 2: Value Bundle (Termurah dari stok yang ada di Semua Kategori)
-    bundle_value = {}
-    total_value = 0
-    for cat, items in options.items():
-        pick = items.sort_values(by=['Web', branch_col], ascending=[True, False]).iloc[0]
-        bundle_value[cat] = pick
-        total_value += pick['Web']
-    
-    if target_price_min <= total_value <= target_price_max:
-        recommendations.append({"name": "Value Bundle (All Items)", "parts": bundle_value, "total": total_value})
+    for bt in bundle_types:
+        bundle = {}
+        total = 0
+        valid = True
+        
+        for cat in all_available_categories:
+            items = options[cat].sort_values(by=bt['sort_by'], ascending=bt['ascending'])
+            
+            # Tentukan item mana yang diambil berdasarkan index
+            idx = bt['idx']
+            if idx == "mid":
+                idx = len(items) // 2
+            
+            if idx < len(items):
+                pick = items.iloc[idx]
+                bundle[cat] = pick
+                total += pick['Web']
+            else:
+                # Jika index tidak tersedia (misal hanya ada 1 stok), ambil yang ada saja
+                pick = items.iloc[0]
+                bundle[cat] = pick
+                total += pick['Web']
+        
+        # Cek apakah masuk dalam rentang harga
+        if target_price_min <= total <= target_price_max:
+            results.append({"name": bt['name'], "parts": bundle, "total": total})
 
-    return recommendations
+    return results
 
 # --- MAIN APP ---
-st.title("🖥️ PC Wizard Pro - Sistem Bundling Dinamis")
+st.title("🖥️ PC Wizard Pro - Sistem Multi-Bundling")
 
 if 'view' not in st.session_state:
     st.session_state.view = 'main'
@@ -196,7 +212,7 @@ if uploaded_file:
     usage_cat = st.sidebar.radio("Kategori Penggunaan:", 
         ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
 
-    # Hitung Batas Harga Dinamis berdasarkan SEMUA kategori yang ada
+    # Hitung Batas Harga Dinamis
     relevant_df = data[(data[usage_cat] == True) & (data[branch_col] > 0)]
     all_cats = relevant_df['Kategori'].unique()
     
@@ -211,33 +227,36 @@ if uploaded_file:
     st.sidebar.subheader("💰 Rentang Harga")
     st.sidebar.info(f"Batas {len(all_cats)} Kategori: Rp{min_price_sum:,.0f} - Rp{max_price_sum:,.0f}")
     
-    # Input rentang harga user
     price_min = st.sidebar.number_input("Harga Minimum User", min_value=0.0, value=float(min_price_sum))
     price_max = st.sidebar.number_input("Harga Maksimum User", min_value=0.0, value=float(max_price_sum))
 
     if st.session_state.view == 'main':
         st.subheader(f"✨ Rekomendasi Bundling ({usage_cat})")
-        st.caption(f"Bundling disusun dari {len(all_cats)} kategori produk yang tersedia di {selected_branch_label}")
+        st.caption(f"Menampilkan hingga 6 variasi bundling terbaik di {selected_branch_label}")
         
-        recs = generate_bundles(data, branch_col, usage_cat, price_min, price_max)
+        recs = generate_multiple_bundles(data, branch_col, usage_cat, price_min, price_max)
         
         if not recs:
             st.warning("Tidak ada kombinasi otomatis yang masuk dalam rentang harga. Coba sesuaikan rentang harga di sidebar.")
         else:
-            cols = st.columns(len(recs) if len(recs) > 0 else 1)
-            for i, res in enumerate(recs):
-                with cols[i]:
-                    st.markdown(f"""
-                    <div class="bundle-card">
-                        <h3 style="margin-bottom:0px;">{res['name']}</h3>
-                        <p style="color:gray; font-size:12px;">{len(res['parts'])} kategori produk included</p>
-                        <p class="price-text">Rp {res['total']:,.0f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    if st.button(f"Pilih & Sesuaikan {i+1}", key=f"btn_{i}", use_container_width=True):
-                        st.session_state.selected_bundle = res.copy()
-                        st.session_state.view = 'detail'
-                        st.rerun()
+            # Grid Tampilan Card (3 kolom agar mirip referensi gambar)
+            for i in range(0, len(recs), 3):
+                cols = st.columns(3)
+                for j in range(3):
+                    if i + j < len(recs):
+                        res = recs[i + j]
+                        with cols[j]:
+                            st.markdown(f"""
+                            <div class="bundle-card">
+                                <div class="bundle-title">{res['name']}</div>
+                                <p style="color:gray; font-size:12px; margin-bottom:0px;">{len(res['parts'])} produk dalam bundle</p>
+                                <div class="price-text">Rp {res['total']:,.0f}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            if st.button(f"Lihat Detail & Sesuaikan", key=f"btn_{i+j}", use_container_width=True):
+                                st.session_state.selected_bundle = res.copy()
+                                st.session_state.view = 'detail'
+                                st.rerun()
 
     elif st.session_state.view == 'detail':
         bundle = st.session_state.selected_bundle
@@ -249,7 +268,6 @@ if uploaded_file:
         
         with col_parts:
             updated_parts = {}
-            # Tampilkan semua barang dalam bundle dengan fitur hapus (minus)
             for cat in sorted(bundle['parts'].keys()):
                 item = bundle['parts'][cat]
                 with st.container():
@@ -258,8 +276,8 @@ if uploaded_file:
                     c1.caption(f"Stok: {item[branch_col]} | Harga: Rp{item['Web']:,.0f}")
                     
                     if c2.button("➖", key=f"del_{cat}"):
-                        st.toast(f"{cat} dihapus dari bundle.")
-                        continue # Lewati item ini agar tidak masuk ke updated_parts
+                        st.toast(f"{cat} dihapus.")
+                        continue
                     else:
                         updated_parts[cat] = item
                 st.divider()
@@ -269,7 +287,6 @@ if uploaded_file:
         with col_summary:
             st.markdown("### 🧾 Ringkasan Bundling")
             
-            # Opsi Rakit
             is_assembled = st.checkbox("Gunakan Jasa Rakit (Rp 200,000)?", value=False)
             assembly_fee = 200000 if is_assembled else 0
             
@@ -291,4 +308,4 @@ if uploaded_file:
                 st.success(f"Bundling berhasil dikonfirmasi untuk cabang {selected_branch_label}!")
 
 else:
-    st.info("Silakan upload file Data Portal (CSV/Excel) untuk memulai sistem bundling dinamis.")
+    st.info("Silakan upload file Data Portal (CSV/Excel) untuk memulai.")
