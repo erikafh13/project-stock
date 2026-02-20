@@ -217,9 +217,9 @@ if uploaded_file:
     st.sidebar.header("⚙️ Konfigurasi Utama")
     
     branch_map = {
-        "ITC": "Stock A - ITC", "SBY": "Stock B", "C6": "Stock C6",
-        "Semarang": "Stock D - SMG", "Jogja": "Stock E - JOG",
-        "Malang": "Stock F - MLG", "Bali": "Stock H - BALI", "Surabaya (Y)": "Stock Y - SBY"
+        "SBY - ITC": "Stock A - ITC", "JAKARTA": "Stock B", "SBY - LEBAK": "Stock C6",
+        "SEMARANG": "Stock D - SMG", "JOGJA": "Stock E - JOG",
+        "MALANG": "Stock F - MLG", "BALI": "Stock H - BALI", "SBY - TENGGILIS": "Stock Y - SBY"
     }
     selected_branch_label = st.sidebar.selectbox("Pilih Cabang:", list(branch_map.keys()))
     branch_col = branch_map[selected_branch_label]
