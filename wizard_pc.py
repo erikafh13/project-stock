@@ -1,22 +1,37 @@
 import streamlit as st
 import pandas as pd
 import re
-import io
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Sistem Bundling PC", layout="wide")
+st.set_page_config(page_title="Sistem Bundling PC - Pro", layout="wide")
 
-st.title("🖥️ Sistem Bundling PC")
-st.markdown("Analisis stok dan pilih komponen berdasarkan kategori kebutuhan.")
+# --- CSS CUSTOM UNTUK TAMPILAN CARD ---
+st.markdown("""
+<style>
+    .bundle-card {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 15px;
+        background-color: white;
+        margin-bottom: 20px;
+        transition: 0.3s;
+    }
+    .bundle-card:hover {
+        box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+    }
+    .price-text {
+        color: #1E88E5;
+        font-size: 20px;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# --- FUNGSI PEMROSESAN DATA ---
+# --- FUNGSI PEMROSESAN DATA (ATURAN KATEGORI TETAP SAMA) ---
 def process_data(df):
-    # Membersihkan data dasar (Stok 0 tetap diikutkan sesuai permintaan)
     df['Nama Accurate'] = df['Nama Accurate'].fillna('')
     df['Web'] = pd.to_numeric(df['Web'], errors='coerce').fillna(0)
-    df['Stock Total'] = pd.to_numeric(df['Stock Total'], errors='coerce').fillna(0)
     
-    # Inisialisasi Kolom Kategori Baru
     df['Office'] = False
     df['Gaming Standard / Design 2D'] = False
     df['Gaming Advanced / Design 3D'] = False
@@ -105,154 +120,169 @@ def process_data(df):
     
     return df
 
-# --- INPUT DATA ---
-uploaded_file = st.file_uploader("Upload Data Portal (CSV atau XLSX)", type=["csv", "xlsx"])
+# --- FUNGSI GENERATE REKOMENDASI ---
+def generate_bundles(df, branch_col, usage_cat, target_price_min, target_price_max):
+    # Filter stok di cabang tersebut
+    available_df = df[df[branch_col] > 0].copy()
+    available_df = available_df[available_df[usage_cat] == True]
+    
+    categories = ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']
+    
+    # Kumpulkan opsi per kategori, urutkan berdasarkan stok tertinggi
+    options = {}
+    for cat in categories:
+        cat_items = available_df[available_df['Kategori'] == cat].sort_values(by=[branch_col, 'Web'], ascending=[False, True])
+        if not cat_items.empty:
+            options[cat] = cat_items
+
+    # Logika sederhana pembuatan 3 rekomendasi: Budget, Balanced, High-Stock
+    recommendations = []
+    
+    # Rekomendasi 1: Prioritas Stok Tertinggi (Best Seller)
+    bundle1 = {}
+    total1 = 0
+    for cat, items in options.items():
+        pick = items.iloc[0] # Ambil yang stoknya paling tinggi (karena sudah disort)
+        bundle1[cat] = pick
+        total1 += pick['Web']
+    
+    if target_price_min <= total1 <= target_price_max:
+        recommendations.append({"name": "Stock Priority Bundle", "parts": bundle1, "total": total1})
+
+    # Rekomendasi 2: Cheapest High Stock
+    bundle2 = {}
+    total2 = 0
+    for cat, items in options.items():
+        # Cari yang stok > 0 tapi harga termurah di antara stok yang layak
+        pick = items.sort_values(by=['Web', branch_col], ascending=[True, False]).iloc[0]
+        bundle2[cat] = pick
+        total2 += pick['Web']
+    
+    if target_price_min <= total2 <= target_price_max:
+        recommendations.append({"name": "Value Bundle", "parts": bundle2, "total": total2})
+
+    return recommendations
+
+# --- MAIN APP ---
+st.title("🖥️ PC Wizard Pro - Bundling System")
+
+if 'view' not in st.session_state:
+    st.session_state.view = 'main'
+if 'selected_bundle' not in st.session_state:
+    st.session_state.selected_bundle = None
+
+uploaded_file = st.file_uploader("Upload Data Portal (CSV)", type="csv")
 
 if uploaded_file:
-    # Cek ekstensi file
-    if uploaded_file.name.endswith('.csv'):
-        raw_df = pd.read_csv(uploaded_file)
-    else:
-        raw_df = pd.read_excel(uploaded_file)
+    data = process_data(pd.read_csv(uploaded_file))
+    
+    # Sidebar Filters
+    st.sidebar.header("⚙️ Konfigurasi Utama")
+    
+    branch_map = {
+        "ITC": "Stock A - ITC",
+        "SBY": "Stock B",
+        "C6": "Stock C6",
+        "Semarang": "Stock D - SMG",
+        "Jogja": "Stock E - JOG",
+        "Malang": "Stock F - MLG",
+        "Bali": "Stock H - BALI",
+        "Surabaya (Y)": "Stock Y - SBY"
+    }
+    selected_branch_label = st.sidebar.selectbox("Pilih Cabang:", list(branch_map.keys()))
+    branch_col = branch_map[selected_branch_label]
+    
+    usage_cat = st.sidebar.radio("Kategori Penggunaan:", 
+        ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
+
+    # Hitung Batas Harga Dinamis
+    relevant_df = data[(data[usage_cat] == True) & (data[branch_col] > 0)]
+    required_cats = ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']
+    
+    min_price_sum = 0
+    max_price_sum = 0
+    for cat in required_cats:
+        cat_prices = relevant_df[relevant_df['Kategori'] == cat]['Web']
+        if not cat_prices.empty:
+            min_price_sum += cat_prices.min()
+            max_price_sum += cat_prices.max()
+
+    st.sidebar.subheader("💰 Rentang Harga")
+    st.sidebar.info(f"Batas Sistem: Rp{min_price_sum:,.0f} - Rp{max_price_sum:,.0f}")
+    
+    price_min = st.sidebar.number_input("Harga Minimum", min_value=float(min_price_sum), value=float(min_price_sum))
+    price_max = st.sidebar.number_input("Harga Maksimum", max_value=float(max_price_sum), value=float(max_price_sum))
+
+    if st.session_state.view == 'main':
+        st.subheader(f"✨ Rekomendasi Bundling ({usage_cat})")
         
-    data = process_data(raw_df)
-    
-    # Filter: Hanya tampilkan produk yang masuk dalam kategori yang dianalisis
-    analyzed_only = data[
-        (data['Office'] == True) | 
-        (data['Gaming Standard / Design 2D'] == True) | 
-        (data['Gaming Advanced / Design 3D'] == True)
-    ].copy()
-
-    # --- BAGIAN 1: TAMPILKAN DATA STOK & PENGKATEGORIAN ---
-    st.subheader("📊 Analisis Stok & Kategori Otomatis")
-    st.markdown("Menampilkan produk yang teridentifikasi oleh sistem (termasuk stok 0).")
-    
-    category_cols = ['Office', 'Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']
-    stock_cols = [col for col in analyzed_only.columns if 'Stock' in col]
-    display_cols = ['Nama Accurate', 'Kategori'] + stock_cols + ['Web'] + category_cols
-    
-    # Fitur Download Excel (.xlsx)
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        analyzed_only[display_cols].to_excel(writer, index=False, sheet_name='Analisis Bundling')
-    
-    st.download_button(
-        label="📥 Download Hasil Analisis (.xlsx)",
-        data=buffer.getvalue(),
-        file_name='hasil_analisis_bundling.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    
-    # Tampilan Tabel
-    st.dataframe(
-        analyzed_only[display_cols],
-        column_config={
-            "Web": st.column_config.NumberColumn("Harga Web", format="Rp %d"),
-            "Office": st.column_config.CheckboxColumn("Office"),
-            "Gaming Standard / Design 2D": st.column_config.CheckboxColumn("Std/2D"),
-            "Gaming Advanced / Design 3D": st.column_config.CheckboxColumn("Adv/3D"),
-        },
-        use_container_width=True,
-        height=450
-    )
-
-    st.divider()
-
-    # --- BAGIAN 2: KONFIGURATOR BUNDLING ---
-    st.subheader("🛠️ Konfigurator Bundling")
-    bundle_type = st.radio(
-        "Pilih Fokus Kategori PC:", 
-        ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"],
-        horizontal=True
-    )
-    
-    # Filter stok > 0 untuk pemilihan komponen di sistem bundling
-    filtered_data = analyzed_only[
-        (analyzed_only[bundle_type] == True) & 
-        (analyzed_only['Stock Total'] > 0)
-    ].sort_values('Web')
-
-    if filtered_data.empty:
-        st.warning(f"Tidak ada stok tersedia (> 0) untuk kategori {bundle_type} saat ini.")
-    else:
-        col1, col2 = st.columns([2, 1])
+        recs = generate_bundles(data, branch_col, usage_cat, price_min, price_max)
         
-        with col1:
-            selected_bundle = {}
+        if not recs:
+            st.warning("Tidak ditemukan kombinasi produk yang sesuai dengan rentang harga di cabang ini.")
+        else:
+            cols = st.columns(3)
+            for i, res in enumerate(recs):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                    <div class="bundle-card">
+                        <h3>{res['name']}</h3>
+                        <p><b>{len(res['parts'])} Produk dalam bundle</b></p>
+                        <p class="price-text">Rp {res['total']:,.0f}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button(f"Lihat Detail {i+1}", key=f"btn_{i}"):
+                        st.session_state.selected_bundle = res.copy()
+                        st.session_state.view = 'detail'
+                        st.rerun()
 
-            # 1. PROCESSOR
-            procs = filtered_data[filtered_data['Kategori'] == 'Processor']
-            if not procs.empty:
-                p_choice = st.selectbox("1. Pilih Processor:", procs['Nama Accurate'] + " - Rp" + procs['Web'].map('{:,.0f}'.format))
-                selected_proc_name = p_choice.split(" - Rp")[0]
-                selected_bundle['Processor'] = procs[procs['Nama Accurate'] == selected_proc_name].iloc[0]
-
-            # 2. MOTHERBOARD
-            mobs = filtered_data[filtered_data['Kategori'] == 'Motherboard']
-            if not mobs.empty:
-                m_choice = st.selectbox("2. Pilih Motherboard:", mobs['Nama Accurate'] + " - Rp" + mobs['Web'].map('{:,.0f}'.format))
-                selected_bundle['Motherboard'] = mobs[mobs['Nama Accurate'] == m_choice.split(" - Rp")[0]].iloc[0]
-
-            # 3. RAM
-            rams = filtered_data[filtered_data['Kategori'] == 'Memory RAM']
-            if not rams.empty:
-                r_choice = st.selectbox("3. Pilih Memory RAM:", rams['Nama Accurate'] + " - Rp" + rams['Web'].map('{:,.0f}'.format))
-                selected_bundle['RAM'] = rams[rams['Nama Accurate'] == r_choice.split(" - Rp")[0]].iloc[0]
-
-            # 4. SSD
-            ssds = filtered_data[filtered_data['Kategori'] == 'SSD Internal']
-            if not ssds.empty:
-                s_choice = st.selectbox("4. Pilih SSD Internal:", ssds['Nama Accurate'] + " - Rp" + ssds['Web'].map('{:,.0f}'.format))
-                selected_bundle['SSD'] = ssds[ssds['Nama Accurate'] == s_choice.split(" - Rp")[0]].iloc[0]
-
-            # 5. VGA (Conditional)
-            if 'Processor' in selected_bundle:
-                need_vga = selected_bundle['Processor']['NeedVGA'] == 1
-                if need_vga:
-                    vgas = filtered_data[filtered_data['Kategori'] == 'VGA']
-                    if not vgas.empty:
-                        v_choice = st.selectbox("5. Pilih VGA (Wajib untuk Seri F):", vgas['Nama Accurate'] + " - Rp" + vgas['Web'].map('{:,.0f}'.format))
-                        selected_bundle['VGA'] = vgas[vgas['Nama Accurate'] == v_choice.split(" - Rp")[0]].iloc[0]
+    elif st.session_state.view == 'detail':
+        bundle = st.session_state.selected_bundle
+        st.button("⬅️ Kembali ke Rekomendasi", on_click=lambda: setattr(st.session_state, 'view', 'main'))
+        
+        st.subheader(f"🛠️ Sesuaikan Bundling: {bundle['name']}")
+        
+        col_parts, col_summary = st.columns([2, 1])
+        
+        with col_parts:
+            # Fitur Hapus/Minus Barang
+            updated_parts = {}
+            for cat, item in bundle['parts'].items():
+                c1, c2 = st.columns([4, 1])
+                c1.write(f"**{cat}**: {item['Nama Accurate']}")
+                c1.caption(f"Stok di {selected_branch_label}: {item[branch_col]} | Harga: Rp{item['Web']:,.0f}")
+                
+                if c2.button("➖", key=f"del_{cat}"):
+                    # Logic: Skip this item from update
+                    continue
                 else:
-                    st.info("Processor ini memiliki IGPU (VGA Opsional).")
-                    if st.checkbox("Tambah Kartu Grafis (VGA)?"):
-                        vgas = filtered_data[filtered_data['Kategori'] == 'VGA']
-                        if not vgas.empty:
-                            v_choice = st.selectbox("Pilih VGA Tambahan:", vgas['Nama Accurate'] + " - Rp" + vgas['Web'].map('{:,.0f}'.format))
-                            selected_bundle['VGA'] = vgas[vgas['Nama Accurate'] == v_choice.split(" - Rp")[0]].iloc[0]
-
-            # 6. CASING
-            cases = filtered_data[filtered_data['Kategori'] == 'Casing PC']
-            if not cases.empty:
-                c_choice = st.selectbox("6. Pilih Casing PC:", cases['Nama Accurate'] + " - Rp" + cases['Web'].map('{:,.0f}'.format))
-                selected_bundle['Casing'] = cases[cases['Nama Accurate'] == c_choice.split(" - Rp")[0]].iloc[0]
-
-            # 7. PSU (Conditional)
-            if 'Casing' in selected_bundle:
-                has_psu = selected_bundle['Casing']['HasPSU'] == 1
-                if not has_psu:
-                    psus = filtered_data[filtered_data['Kategori'] == 'Power Supply']
-                    if not psus.empty:
-                        ps_choice = st.selectbox("7. Pilih Power Supply:", psus['Nama Accurate'] + " - Rp" + psus['Web'].map('{:,.0f}'.format))
-                        selected_bundle['PSU'] = psus[psus['Nama Accurate'] == ps_choice.split(" - Rp")[0]].iloc[0]
-                else:
-                    st.success("Casing sudah termasuk PSU.")
-
-        with col2:
-            st.markdown("### 📋 Ringkasan")
-            total_price = 0
-            for part, row in selected_bundle.items():
-                st.write(f"**{part}**")
-                st.caption(f"{row['Nama Accurate']}")
-                st.write(f"Rp{row['Web']:,.0f}")
-                total_price += row['Web']
-                st.divider()
+                    updated_parts[cat] = item
             
-            st.subheader(f"Total: Rp{total_price:,.0f}")
-            if st.button("Cetak Penawaran"):
+            # Update parts in session
+            st.session_state.selected_bundle['parts'] = updated_parts
+
+        with col_summary:
+            st.markdown("### 🧾 Ringkasan Pesanan")
+            
+            # Opsi Rakit
+            is_assembled = st.checkbox("Gunakan Jasa Rakit (Rp 200,000)?")
+            assembly_fee = 200000 if is_assembled else 0
+            
+            total_items = 0
+            for cat, item in updated_parts.items():
+                st.write(f"- {item['Nama Accurate'][:30]}...")
+                total_items += item['Web']
+            
+            if is_assembled:
+                st.write("- Jasa Perakitan PC")
+            
+            grand_total = total_items + assembly_fee
+            st.divider()
+            st.subheader(f"Total: Rp{grand_total:,.0f}")
+            
+            if st.button("✅ Konfirmasi & Cetak"):
                 st.balloons()
-                st.success("Fitur Cetak segera hadir!")
+                st.success("Pesanan telah dikonfirmasi!")
 
 else:
-    st.info("Silakan upload file CSV atau XLSX Data Portal untuk memulai.")
+    st.info("Silakan upload file CSV Data Portal untuk memulai.")
