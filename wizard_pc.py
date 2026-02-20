@@ -135,25 +135,24 @@ def generate_bundles(df, branch_col, usage_cat, target_price_min, target_price_m
         if not cat_items.empty:
             options[cat] = cat_items
 
-    # Logika sederhana pembuatan 3 rekomendasi: Budget, Balanced, High-Stock
+    # Logika pembuatan 2 tipe rekomendasi utama
     recommendations = []
     
     # Rekomendasi 1: Prioritas Stok Tertinggi (Best Seller)
     bundle1 = {}
     total1 = 0
     for cat, items in options.items():
-        pick = items.iloc[0] # Ambil yang stoknya paling tinggi (karena sudah disort)
+        pick = items.iloc[0]
         bundle1[cat] = pick
         total1 += pick['Web']
     
     if target_price_min <= total1 <= target_price_max:
         recommendations.append({"name": "Stock Priority Bundle", "parts": bundle1, "total": total1})
 
-    # Rekomendasi 2: Cheapest High Stock
+    # Rekomendasi 2: Value Bundle (Termurah dari Stok yang Tersedia)
     bundle2 = {}
     total2 = 0
     for cat, items in options.items():
-        # Cari yang stok > 0 tapi harga termurah di antara stok yang layak
         pick = items.sort_values(by=['Web', branch_col], ascending=[True, False]).iloc[0]
         bundle2[cat] = pick
         total2 += pick['Web']
@@ -171,10 +170,17 @@ if 'view' not in st.session_state:
 if 'selected_bundle' not in st.session_state:
     st.session_state.selected_bundle = None
 
-uploaded_file = st.file_uploader("Upload Data Portal (CSV)", type="csv")
+# Update: Mendukung CSV dan Excel
+uploaded_file = st.file_uploader("Upload Data Portal (CSV atau XLSX)", type=["csv", "xlsx"])
 
 if uploaded_file:
-    data = process_data(pd.read_csv(uploaded_file))
+    # Logic membaca file berdasarkan extension
+    if uploaded_file.name.endswith('.csv'):
+        raw_df = pd.read_csv(uploaded_file)
+    else:
+        raw_df = pd.read_excel(uploaded_file)
+        
+    data = process_data(raw_df)
     
     # Sidebar Filters
     st.sidebar.header("⚙️ Konfigurasi Utama")
@@ -245,7 +251,6 @@ if uploaded_file:
         col_parts, col_summary = st.columns([2, 1])
         
         with col_parts:
-            # Fitur Hapus/Minus Barang
             updated_parts = {}
             for cat, item in bundle['parts'].items():
                 c1, c2 = st.columns([4, 1])
@@ -253,18 +258,15 @@ if uploaded_file:
                 c1.caption(f"Stok di {selected_branch_label}: {item[branch_col]} | Harga: Rp{item['Web']:,.0f}")
                 
                 if c2.button("➖", key=f"del_{cat}"):
-                    # Logic: Skip this item from update
                     continue
                 else:
                     updated_parts[cat] = item
             
-            # Update parts in session
             st.session_state.selected_bundle['parts'] = updated_parts
 
         with col_summary:
             st.markdown("### 🧾 Ringkasan Pesanan")
             
-            # Opsi Rakit
             is_assembled = st.checkbox("Gunakan Jasa Rakit (Rp 200,000)?")
             assembly_fee = 200000 if is_assembled else 0
             
@@ -285,4 +287,4 @@ if uploaded_file:
                 st.success("Pesanan telah dikonfirmasi!")
 
 else:
-    st.info("Silakan upload file CSV Data Portal untuk memulai.")
+    st.info("Silakan upload file CSV atau Excel Data Portal untuk memulai.")
