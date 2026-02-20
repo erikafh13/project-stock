@@ -16,10 +16,14 @@ st.markdown("""
         margin-bottom: 20px;
         transition: 0.3s;
         height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
     .bundle-card:hover {
         box-shadow: 0 4px 12px 0 rgba(0,0,0,0.15);
         border-color: #1E88E5;
+        transform: translateY(-5px);
     }
     .price-text {
         color: #1E88E5;
@@ -32,6 +36,17 @@ st.markdown("""
         font-size: 18px;
         font-weight: bold;
         margin-bottom: 5px;
+        min-height: 50px;
+    }
+    .badge-stock {
+        background-color: #E3F2FD;
+        color: #1976D2;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 10px;
+        font-weight: bold;
+        margin-bottom: 8px;
+        display: inline-block;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -130,7 +145,7 @@ def process_data(df):
     
     return df
 
-# --- FUNGSI GENERATE MULTIPLE REKOMENDASI ---
+# --- FUNGSI GENERATE MULTIPLE REKOMENDASI (EXPANDED TO 9) ---
 def generate_multiple_bundles(df, branch_col, usage_cat, target_price_min, target_price_max):
     available_df = df[(df[branch_col] > 0) & (df[usage_cat] == True)].copy()
     all_available_categories = sorted(available_df['Kategori'].unique().tolist())
@@ -141,42 +156,42 @@ def generate_multiple_bundles(df, branch_col, usage_cat, target_price_min, targe
 
     results = []
     
-    # Logic untuk membuat hingga 6 variasi bundel
+    # Logic untuk membuat hingga 9 variasi bundel
     bundle_types = [
-        {"name": "Ultra Stock Priority", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 0},
-        {"name": "Popular Choice", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 1},
-        {"name": "Alternative High Stock", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 2},
-        {"name": "Budget Value", "sort_by": ['Web', branch_col], "ascending": [True, False], "idx": 0},
-        {"name": "Balanced Pick", "sort_by": ['Web', branch_col], "ascending": [True, False], "idx": "mid"},
-        {"name": "Premium Selection", "sort_by": ['Web', branch_col], "ascending": [False, False], "idx": 0}
+        {"name": "Ultra Stock Priority", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 0, "tag": "BEST STOCK"},
+        {"name": "Popular High Stock", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 1, "tag": "POPULAR"},
+        {"name": "Stable Choice", "sort_by": [branch_col, 'Web'], "ascending": [False, True], "idx": 2, "tag": "STABLE"},
+        {"name": "Extreme Budget", "sort_by": ['Web', branch_col], "ascending": [True, False], "idx": 0, "tag": "BEST PRICE"},
+        {"name": "Smart Value", "sort_by": ['Web', branch_col], "ascending": [True, False], "idx": 1, "tag": "RECOMMENDED"},
+        {"name": "Balanced Sweet Spot", "sort_by": ['Web', branch_col], "ascending": [True, False], "idx": "mid", "tag": "BALANCED"},
+        {"name": "Advanced Mid-Range", "sort_by": ['Web', branch_col], "ascending": [False, False], "idx": 2, "tag": "PERFORMANCE"},
+        {"name": "Premium Enthusiast", "sort_by": ['Web', branch_col], "ascending": [False, False], "idx": 1, "tag": "PREMIUM"},
+        {"name": "Luxury Flagship", "sort_by": ['Web', branch_col], "ascending": [False, False], "idx": 0, "tag": "ELITE"}
     ]
 
     for bt in bundle_types:
         bundle = {}
         total = 0
-        valid = True
         
         for cat in all_available_categories:
             items = options[cat].sort_values(by=bt['sort_by'], ascending=bt['ascending'])
             
-            # Tentukan item mana yang diambil berdasarkan index
             idx = bt['idx']
             if idx == "mid":
                 idx = len(items) // 2
             
+            # Pengamanan index agar tidak out of bounds
             if idx < len(items):
                 pick = items.iloc[idx]
-                bundle[cat] = pick
-                total += pick['Web']
             else:
-                # Jika index tidak tersedia (misal hanya ada 1 stok), ambil yang ada saja
                 pick = items.iloc[0]
-                bundle[cat] = pick
-                total += pick['Web']
+                
+            bundle[cat] = pick
+            total += pick['Web']
         
         # Cek apakah masuk dalam rentang harga
         if target_price_min <= total <= target_price_max:
-            results.append({"name": bt['name'], "parts": bundle, "total": total})
+            results.append({"name": bt['name'], "parts": bundle, "total": total, "tag": bt['tag']})
 
     return results
 
@@ -232,14 +247,14 @@ if uploaded_file:
 
     if st.session_state.view == 'main':
         st.subheader(f"✨ Rekomendasi Bundling ({usage_cat})")
-        st.caption(f"Menampilkan hingga 6 variasi bundling terbaik di {selected_branch_label}")
+        st.caption(f"Menampilkan variasi bundling cerdas di {selected_branch_label}")
         
         recs = generate_multiple_bundles(data, branch_col, usage_cat, price_min, price_max)
         
         if not recs:
             st.warning("Tidak ada kombinasi otomatis yang masuk dalam rentang harga. Coba sesuaikan rentang harga di sidebar.")
         else:
-            # Grid Tampilan Card (3 kolom agar mirip referensi gambar)
+            # Grid Tampilan Card (3 kolom)
             for i in range(0, len(recs), 3):
                 cols = st.columns(3)
                 for j in range(3):
@@ -248,12 +263,15 @@ if uploaded_file:
                         with cols[j]:
                             st.markdown(f"""
                             <div class="bundle-card">
-                                <div class="bundle-title">{res['name']}</div>
-                                <p style="color:gray; font-size:12px; margin-bottom:0px;">{len(res['parts'])} produk dalam bundle</p>
-                                <div class="price-text">Rp {res['total']:,.0f}</div>
+                                <div>
+                                    <span class="badge-stock">{res['tag']}</span>
+                                    <div class="bundle-title">{res['name']}</div>
+                                    <p style="color:gray; font-size:12px; margin-bottom:0px;">{len(res['parts'])} produk dalam bundle</p>
+                                    <div class="price-text">Rp {res['total']:,.0f}</div>
+                                </div>
                             </div>
                             """, unsafe_allow_html=True)
-                            if st.button(f"Lihat Detail & Sesuaikan", key=f"btn_{i+j}", use_container_width=True):
+                            if st.button(f"Pilih & Sesuaikan", key=f"btn_{i+j}", use_container_width=True):
                                 st.session_state.selected_bundle = res.copy()
                                 st.session_state.view = 'detail'
                                 st.rerun()
