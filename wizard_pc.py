@@ -165,7 +165,7 @@ def process_data(df):
             row['Office'] = True
         row['Gaming Standard / Design 2D'], row['Gaming Advanced / Design 3D'] = True, True
         return row
-    df.loc[case_mask] = df[map_case, axis=1)
+    df.loc[case_mask] = df[case_mask].apply(map_case, axis=1)
 
     # 5. PSU
     psu_mask = df['Kategori'] == 'Power Supply'
