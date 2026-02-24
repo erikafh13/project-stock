@@ -97,7 +97,7 @@ def process_data(df):
         # Wajib VGA jika seri 'F'
         if re.search(r'\d+[0-9]F\b', name): row['NeedVGA'] = 1
         # Wajib Cooler jika Tray / No Fan
-        if 'TRAY' in name or 'NO FAN' in name: row['NeedCooler'] = 1
+        if 'Tray' in name or 'NO FAN' in name: row['NeedCooler'] = 1
         
         # Usage Mapping
         if 'I3' in name or 'I5' in name:
