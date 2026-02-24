@@ -158,7 +158,7 @@ def process_data(df):
     df.loc[psu_mask, ['Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']] = True
 
     # 7. CPU COOLER (Range Harga)
-    cooler_mask = df['Kategori'] == 'CPU Cooler'
+    cooler_mask = df['Kategori'] == 'CPU COOLER'
     def map_cooler(row):
         price = row['Web']
         if price <= 300000: row['Office'] = True
@@ -249,10 +249,10 @@ def generate_bundles(df, branch_col, usage_cat, target_min, target_max):
 
         # 6. CPU Cooler (Kondisional Tray)
         if pick_proc['NeedCooler'] == 1:
-            coolers = available_df[available_df['Kategori'] == 'CPU Cooler'].sort_values(by=bt['sort'], ascending=bt['asc'])
+            coolers = available_df[available_df['Kategori'] == 'CPU COOLER'].sort_values(by=bt['sort'], ascending=bt['asc'])
             if not coolers.empty:
-                bundle['CPU Cooler'] = coolers.iloc[0]
-                total += bundle['CPU Cooler']['Web']
+                bundle['CPU COOLER'] = coolers.iloc[0]
+                total += bundle['CPU COOLER']['Web']
         
         if target_min <= total <= target_max:
             results.append({"name": bt['name'], "parts": bundle, "total": total, "tag": bt['tag']})
@@ -314,7 +314,7 @@ if uploaded_file:
         c_parts, c_sum = st.columns([2, 1])
         with c_parts:
             # URUTAN TAMPILAN SESUAI PERMINTAAN
-            ord = ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'VGA', 'Casing PC', 'Power Supply', 'CPU Cooler']
+            ord = ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'VGA', 'Casing PC', 'Power Supply', 'CPU COOLER']
             upd = {}
             for cat in ord:
                 if cat in bundle['parts']:
