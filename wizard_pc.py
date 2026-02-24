@@ -84,15 +84,16 @@ def process_data(df):
     df['Kategori'] = df['Kategori'].fillna('').str.strip()
     df['Web'] = pd.to_numeric(df['Web'], errors='coerce').fillna(0)
     
-    # Normalisasi Nama Kategori agar mudah di-masking
-    df.loc[df['Kategori'].str.upper().str.contains('PROCESSOR'), 'Kategori'] = 'Processor'
-    df.loc[df['Kategori'].str.upper().str.contains('MOTHERBOARD'), 'Kategori'] = 'Motherboard'
-    df.loc[df['Kategori'].str.upper().str.contains('MEMORY RAM|RAM'), 'Kategori'] = 'Memory RAM'
-    df.loc[df['Kategori'].str.upper().str.contains('SSD'), 'Kategori'] = 'SSD Internal'
-    df.loc[df['Kategori'].str.upper().str.contains('VGA|GRAPHIC CARD'), 'Kategori'] = 'VGA'
-    df.loc[df['Kategori'].str.upper().str.contains('CASING'), 'Kategori'] = 'Casing PC'
-    df.loc[df['Kategori'].str.upper().str.contains('POWER SUPPLY|PSU'), 'Kategori'] = 'Power Supply'
-    df.loc[df['Kategori'].str.upper().str.contains('CPU COOLER'), 'Kategori'] = 'CPU Cooler'
+    # Normalisasi Nama Kategori agar lebih akurat (Case Insensitive & Multi-keyword)
+    cat_up = df['Kategori'].str.upper()
+    df.loc[cat_up.str.contains('PROCESSOR'), 'Kategori'] = 'Processor'
+    df.loc[cat_up.str.contains('MOTHERBOARD'), 'Kategori'] = 'Motherboard'
+    df.loc[cat_up.str.contains('MEMORY RAM|RAM'), 'Kategori'] = 'Memory RAM'
+    df.loc[cat_up.str.contains('SSD'), 'Kategori'] = 'SSD Internal'
+    df.loc[cat_up.str.contains('VGA|GRAPHIC CARD'), 'Kategori'] = 'VGA'
+    df.loc[cat_up.str.contains('CASING'), 'Kategori'] = 'Casing PC'
+    df.loc[cat_up.str.contains('POWER SUPPLY|PSU'), 'Kategori'] = 'Power Supply'
+    df.loc[cat_up.str.contains('COOLER|COOLING|FAN PROCESSOR|HEATSINK'), 'Kategori'] = 'CPU Cooler'
     
     # Inisialisasi Kolom Penanda
     df['Office'] = False
@@ -111,8 +112,8 @@ def process_data(df):
         name = row['Nama Accurate'].upper()
         # Wajib VGA jika seri 'F'
         if re.search(r'\d+[0-9]F\b', name): row['NeedVGA'] = 1
-        # Wajib Cooler jika Tray / No Fan
-        if 'Tray' in name or 'NO FAN' in name: row['NeedCooler'] = 1
+        # Wajib Cooler jika Tray / No Fan (Cek kata TRAY atau NO FAN)
+        if 'TRAY' in name or 'NO FAN' in name: row['NeedCooler'] = 1
         
         # Usage Mapping
         if 'I3' in name or 'I5' in name:
@@ -150,7 +151,7 @@ def process_data(df):
     df.loc[df['Kategori'] == 'VGA', ['Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']] = True
     df.loc[(df['Kategori'] == 'VGA') & df['Nama Accurate'].str.upper().str.contains('GT710|GT730'), 'Office'] = True
 
-    # 4. CASING (Logic: "PSU" -> Office Only)
+    # 4. CASING (Logic: "PSU" -> Office Only, Gaming All)
     case_mask = df['Kategori'] == 'Casing PC'
     def map_case(row):
         name = row['Nama Accurate'].upper()
@@ -221,39 +222,41 @@ def generate_bundles(df, branch_col, usage_cat, target_min, target_max):
         bundle['Processor'] = pick_proc
         total += pick_proc['Web']
         
-        # 2. Motherboard
+        # 2. Motherboard Compatible
         mobos = available_df[available_df['Kategori'] == 'Motherboard']
         comp = mobos[mobos.apply(lambda m: is_compatible(pick_proc, m), axis=1)].sort_values(by=bt['sort'], ascending=bt['asc'])
         if comp.empty: continue
         bundle['Motherboard'] = comp.iloc[0]
         total += bundle['Motherboard']['Web']
         
-        # 3. Core Parts
+        # 3. Core Parts (RAM, SSD, Casing)
         for cat in ['Memory RAM', 'SSD Internal', 'Casing PC']:
             items = available_df[available_df['Kategori'] == cat].sort_values(by=bt['sort'], ascending=bt['asc'])
             if not items.empty:
                 bundle[cat] = items.iloc[0]
                 total += bundle[cat]['Web']
 
-        # 4. VGA (Jika Processor seri F)
+        # 4. VGA (Kondisional: Jika Processor seri F)
         if pick_proc['NeedVGA'] == 1:
             vgas = available_df[available_df['Kategori'] == 'VGA'].sort_values(by=bt['sort'], ascending=bt['asc'])
             if not vgas.empty:
                 bundle['VGA'] = vgas.iloc[0]
                 total += bundle['VGA']['Web']
 
-        # 5. PSU
+        # 5. PSU (Kondisional: Jika Office & Case sudah ada PSU, skip. Jika Gaming, tetap pilih PSU)
         needs_psu = True
         if usage_cat == "Office" and bundle.get('Casing PC', {}).get('HasPSU', 0) == 1:
             needs_psu = False
+        
         if needs_psu:
             psus = available_df[available_df['Kategori'] == 'Power Supply'].sort_values(by=bt['sort'], ascending=bt['asc'])
             if not psus.empty:
                 bundle['Power Supply'] = psus.iloc[0]
                 total += bundle['Power Supply']['Web']
 
-        # 6. CPU Cooler (Jika Tray)
+        # 6. CPU COOLER (Kondisional: Jika Tray / No Fan)
         if pick_proc['NeedCooler'] == 1:
+            # Penting: CPU Cooler harus masuk filter kategori penggunaan (usage_cat)
             coolers = available_df[available_df['Kategori'] == 'CPU Cooler'].sort_values(by=bt['sort'], ascending=bt['asc'])
             if not coolers.empty:
                 bundle['CPU Cooler'] = coolers.iloc[0]
@@ -281,23 +284,30 @@ if uploaded_file:
     branch_map = {"ITC": "Stock A - ITC", "SBY": "Stock B", "C6": "Stock C6", "Semarang": "Stock D - SMG", "Jogja": "Stock E - JOG", "Malang": "Stock F - MLG", "Bali": "Stock H - BALI", "Surabaya (Y)": "Stock Y - SBY"}
     sel_branch = st.sidebar.selectbox("Pilih Cabang:", list(branch_map.keys()))
     b_col = branch_map[sel_branch]
-    u_cat = st.sidebar.radio("Kategori:", ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
+    u_cat = st.sidebar.radio("Kategori Penggunaan:", ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
 
-    # Rakit Fee
-    asm_fee = {"Office": 100000, "Gaming Standard / Design 2D": 150000, "Gaming Advanced / Design 3D": 200000}[u_cat]
+    # Biaya Rakit Mapping
+    asm_fees = {"Office": 100000, "Gaming Standard / Design 2D": 150000, "Gaming Advanced / Design 3D": 200000}
+    asm_fee = asm_fees[u_cat]
 
     # Price Check
     rel_df = data[(data[u_cat] == True) & (data[b_col] > 0)]
-    min_p = rel_df.groupby('Kategori')['Web'].min().sum()
-    max_p = rel_df.groupby('Kategori')['Web'].max().sum()
-    st.sidebar.info(f"Rentang: Rp{min_p:,.0f} - Rp{max_p:,.0f}")
+    # Perhitungan batas min/max berdasarkan stok cabang
+    if not rel_df.empty:
+        min_p = rel_df.groupby('Kategori')['Web'].min().sum()
+        max_p = rel_df.groupby('Kategori')['Web'].max().sum()
+    else:
+        min_p, max_p = 0.0, 0.0
+
+    st.sidebar.info(f"Batas Sistem di {sel_branch}: Rp{min_p:,.0f} - Rp{max_p:,.0f}")
     p_min = st.sidebar.number_input("Harga Min", min_value=0.0, value=float(min_p))
     p_max = st.sidebar.number_input("Harga Max", min_value=0.0, value=float(max_p))
 
     if st.session_state.view == 'main':
         st.subheader(f"✨ Rekomendasi ({u_cat})")
         recs = generate_bundles(data, b_col, u_cat, p_min, p_max)
-        if not recs: st.warning("Sesuaikan rentang harga di sidebar.")
+        if not recs: 
+            st.warning("Tidak ditemukan bundel. Coba sesuaikan rentang harga di sidebar atau pastikan stok kategori lengkap di cabang ini.")
         else:
             for i in range(0, len(recs), 3):
                 cols = st.columns(3)
@@ -328,11 +338,16 @@ if uploaded_file:
                     col1.write(f"**[{cat}]** {item['Nama Accurate']}")
                     col1.caption(f"Harga: Rp{item['Web']:,.0f}")
                     if not col2.button("➖", key=f"del_{cat}"): upd[cat] = item
+            
+            # Cek jika perlu cooler tapi tidak ditemukan
+            if bundle['parts']['Processor']['NeedCooler'] == 1 and 'CPU Cooler' not in upd:
+                st.error("⚠️ Peringatan: Processor ini tipe Tray/No Fan, namun CPU Cooler tidak terpilih otomatis (Cek stok CPU Cooler di cabang ini).")
+
             st.session_state.selected_bundle['parts'] = upd
 
         with c_sum:
             st.markdown("### 🧾 Ringkasan")
-            rakit = st.checkbox(f"Jasa Rakit (Rp {asm_fee:,.0f})?", value=False)
+            rakit = st.checkbox(f"Jasa Rakit ({u_cat}: Rp {asm_fee:,.0f})?", value=False)
             t_items = sum(x['Web'] for x in upd.values())
             grand = t_items + (asm_fee if rakit else 0)
             for k, v in upd.items(): st.text(f"• {v['Nama Accurate'][:35]}...")
