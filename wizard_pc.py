@@ -78,7 +78,15 @@ def process_data(df):
     # Bersihkan spasi di nama kolom
     df.columns = df.columns.str.strip()
     
-    # Filter Stock > 0
+    # Gabungkan Stok Surabaya (ITC + B + Y-SBY)
+    # Gunakan .get() dan fillna(0) untuk menghindari error jika kolom tidak ada
+    df['Stock_SBY_Combined'] = (
+        df.get('Stock A - ITC', 0).fillna(0) + 
+        df.get('Stock B', 0).fillna(0) + 
+        df.get('Stock Y - SBY', 0).fillna(0)
+    )
+    
+    # Filter Stock Total > 0
     df = df[df['Stock Total'] > 0].copy()
     df['Nama Accurate'] = df['Nama Accurate'].fillna('').str.strip()
     df['Kategori'] = df['Kategori'].fillna('').str.strip()
@@ -281,7 +289,15 @@ if uploaded_file:
     
     # Sidebar
     st.sidebar.header("⚙️ Konfigurasi")
-    branch_map = {"ITC": "Stock A - ITC", "SBY": "Stock B", "C6": "Stock C6", "Semarang": "Stock D - SMG", "Jogja": "Stock E - JOG", "Malang": "Stock F - MLG", "Bali": "Stock H - BALI", "Surabaya (Y)": "Stock Y - SBY"}
+    # Pilihan Surabaya digabung menjadi satu kunci
+    branch_map = {
+        "Surabaya (Gabungan)": "Stock_SBY_Combined",
+        "C6": "Stock C6",
+        "Semarang": "Stock D - SMG",
+        "Jogja": "Stock E - JOG",
+        "Malang": "Stock F - MLG",
+        "Bali": "Stock H - BALI"
+    }
     sel_branch = st.sidebar.selectbox("Pilih Cabang:", list(branch_map.keys()))
     b_col = branch_map[sel_branch]
     u_cat = st.sidebar.radio("Kategori Penggunaan:", ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
