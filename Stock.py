@@ -223,6 +223,7 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
     df.drop(columns=['Rounded_Metric', 'Log_Input'], inplace=True, errors='ignore')
 
     def apply_category_log(row):
+        # Requirement 1: Jika WMA 0 maka otomatis kategori F
         if row[metric_col] <= 0 or pd.isna(row[metric_col]): return 'F'
         ratio = row[ratio_col]
         if ratio > 2: return 'A'
@@ -363,7 +364,8 @@ elif page == "Hasil Analisa Stock":
         sales_31_to_60_days = group[(group['Tgl Faktur'] >= range2_start) & (group['Tgl Faktur'] <= range2_end)]['Kuantitas'].sum()
         sales_61_to_90_days = group[(group['Tgl Faktur'] >= range3_start) & (group['Tgl Faktur'] <= range3_end)]['Kuantitas'].sum()
         wma = (sales_last_30_days * 0.5) + (sales_31_to_60_days * 0.3) + (sales_61_to_90_days * 0.2)
-        return wma
+        # --- [UPDATE] Round Up WMA ---
+        return math.ceil(wma)
 
     def highlight_kategori_abc_log(val): 
         warna = {'A': '#cce5ff', 'B': '#d4edda', 'C': '#fff3cd', 'D': '#f8d7da', 'E': '#e9ecef', 'F': '#6c757d'}
@@ -527,16 +529,10 @@ elif page == "Hasil Analisa Stock":
                 )
 
                 # ==============================================================================
-                # [FITUR BARU] Hitung 3 Variasi Min Stock (STRATEGI ULTRA-LEAN)
+                # [UPDATE] Hitung Min Stock (Requirement: Jika F maka Min Stock 0)
                 # ==============================================================================
                 
                 def get_days_multiplier(kategori):                    
-                    # 2. Days Multiplier (Time Based - Asumsi Lead Time 30 Hari)
-                    # A: 33 Hari (1.1x)
-                    # B: 30 Hari (1.0x)
-                    # C: 24 Hari (0.8x - Sedikit di bawah sebulan)
-                    # D: 15 Hari (0.5x - Setengah bulan)
-                    # E: 7 Hari (0.25x - Seminggu)
                     days_map = {
                         'A': 1, 'B': 1, 'C': 0.5, 
                         'D': 0.3, 'E': 0.25, 'F': 0.0
@@ -546,17 +542,12 @@ elif page == "Hasil Analisa Stock":
                 def calculate_min_stock_days_only(row):
                     wma = row['SO WMA']
                     cat = row.get('Kategori ABC (Log-Benchmark - WMA)', 'E')
-                    if wma <= 0: 
+                    # Requirement: Jika WMA 0 atau kategori F maka Min Stock 0
+                    if wma <= 0 or cat == 'F': 
                         return 0
                     
-                    # Ambil multiplier
                     day_mult = get_days_multiplier(cat)
-                    
-                    # Hitung Min Stock (WMA * Multiplier Hari)
                     raw_min = wma * day_mult
-                    
-                    # PEMBULATAN KE ATAS (CEILING)
-                    # Contoh: 2.1 jadi 3, 4.8 jadi 5
                     return math.ceil(raw_min)
 
                 final_result['Min Stock'] = final_result.apply(calculate_min_stock_days_only, axis=1)
@@ -573,20 +564,19 @@ elif page == "Hasil Analisa Stock":
                 * **C:** 0.75x (Buffer 24 Hari)
                 * **D:** 0.50x (Buffer 15 Hari)
                 * **E:** 0.25x (Buffer 7 Hari)
+                * **F:** 0.0x (Min Stock 0, Max Stock 1)
                 """)
                 
                 # ==============================================================================
-                # [LOGIKA MAX STOCK - ULTRA LEAN]
+                # [UPDATE] Logika Max Stock (Requirement: Jika F maka Max Stock 1)
                 # ==============================================================================
                 def calculate_dynamic_max_stock(row):
-                    # Basis perhitungan Max Stock menggunakan SO WMA (sesuai request)
                     wma = row['SO WMA']
                     kategori = row.get('Kategori ABC (Log-Benchmark - WMA)', 'E')
                     
-                    # Aturan Multiplier Max Stock:
-                    # A & B : 2x SO WMA
-                    # C     : 1.5x SO WMA
-                    # D & E : 1x SO WMA
+                    # Requirement: Jika kategori F maka Max Stock 1
+                    if kategori == 'F':
+                        return 1
                     
                     if kategori in ['A', 'B']: 
                         multiplier = 2.0
@@ -595,15 +585,9 @@ elif page == "Hasil Analisa Stock":
                     elif kategori in ['D', 'E']: 
                         multiplier = 1.0
                     else: 
-                        multiplier = 0.0 # F atau lainnya
+                        multiplier = 1.0
                     
                     raw_max = wma * multiplier
-                    
-                    # Pastikan Max Stock tidak lebih kecil dari Min Stock (safety logic)
-                    # min_stock = row['Min Stock']
-                    # if raw_max < min_stock: raw_max = min_stock
-                    
-                    # PEMBULATAN KE ATAS (CEILING)
                     return math.ceil(raw_max)
                 
                 final_result['Max Stock'] = final_result.apply(calculate_dynamic_max_stock, axis=1)
@@ -626,7 +610,12 @@ elif page == "Hasil Analisa Stock":
                 final_result['Stock Cabang'].fillna(0, inplace=True)
                 final_result['Status Stock'] = final_result.apply(get_status_stock, axis=1)
                 
-                final_result['Add Stock'] = final_result.apply(lambda row: max(0, row['Min Stock'] - row['Stock Cabang']), axis=1)
+                # --- [UPDATE] Add Stock (Requirement: Jika F maka Add Stock 0) ---
+                final_result['Add Stock'] = final_result.apply(
+                    lambda row: 0 if row['Kategori ABC (Log-Benchmark - WMA)'] == 'F' 
+                    else max(0, row['Min Stock'] - row['Stock Cabang']), 
+                    axis=1
+                )
                 
                 stock_surabaya = stock_melted[stock_melted['City'] == 'SURABAYA'][['No. Barang', 'Stock']].rename(columns={'Stock': 'Stock Surabaya'})
                 stock_total = stock_melted.groupby('No. Barang')['Stock'].sum().reset_index().rename(columns={'Stock': 'Stock Total'})
@@ -720,7 +709,7 @@ elif page == "Hasil Analisa Stock":
                     for col_name in city_df_display.columns:
                         if pd.api.types.is_numeric_dtype(city_df_display[col_name]):
                             if col_name in keys_to_skip: continue
-                            if "Ratio" in col_name or "Log" in col_name: format_dict_kota[col_name] = '{:.2f}'
+                            if any(x in col_name for x in ["Ratio", "Log", "Avg Log"]): format_dict_kota[col_name] = '{:.2f}'
                             else: format_dict_kota[col_name] = '{:.0f}'
 
                     st.dataframe(
@@ -796,10 +785,8 @@ elif page == "Hasil Analisa Stock":
                     total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
                     
                     pivot_result = pd.merge(pivot_result, total_agg, on=keys, how='left')
-                    # Merge kolom DNA ALL ke tabel utama
                     pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All']], on=keys, how='left')
                     
-                    # Daftarkan kolom ALL di summary
                     final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Suggested_PO', 'All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
@@ -928,7 +915,8 @@ elif page == "Hasil Analisa ABC":
                 
                 grouped.fillna({'Penjualan Bln 1': 0, 'Penjualan Bln 2': 0, 'Penjualan Bln 3': 0}, inplace=True)
                 grouped['AVG Mean'] = (grouped['Penjualan Bln 1'] + grouped['Penjualan Bln 2'] + grouped['Penjualan Bln 3']) / 3
-                grouped['AVG WMA'] = (grouped['Penjualan Bln 1'] * 0.5) + (grouped['Penjualan Bln 2'] * 0.3) + (grouped['Penjualan Bln 3'] * 0.2)
+                # --- [UPDATE] Round Up WMA in ABC Page ---
+                grouped['AVG WMA'] = np.ceil((grouped['Penjualan Bln 1'] * 0.5) + (grouped['Penjualan Bln 2'] * 0.3) + (grouped['Penjualan Bln 3'] * 0.2))
                 
                 result_log_bench_mean = classify_abc_log_benchmark(grouped.copy(), metric_col='AVG Mean')
                 result_log_bench_wma = classify_abc_log_benchmark(grouped.copy(), metric_col='AVG WMA')
@@ -988,7 +976,7 @@ elif page == "Hasil Analisa ABC":
                     for col_name in df_city_display.columns:
                         if pd.api.types.is_numeric_dtype(df_city_display[col_name]):
                             if col_name in keys: continue
-                            if "Ratio" in col_name or "Log" in col_name: format_dict_abc_kota[col_name] = '{:.2f}'
+                            if any(x in col_name for x in ["Ratio", "Log", "Avg Log"]): format_dict_abc_kota[col_name] = '{:.2f}'
                             else: format_dict_abc_kota[col_name] = '{:.0f}'
 
                     st.dataframe(
@@ -1012,7 +1000,8 @@ elif page == "Hasil Analisa ABC":
                 
                 total_abc = result_display.groupby(keys).agg({'Penjualan Bln 1': 'sum', 'Penjualan Bln 2': 'sum', 'Penjualan Bln 3': 'sum'}).reset_index()
                 total_abc['AVG Mean'] = (total_abc['Penjualan Bln 1'] + total_abc['Penjualan Bln 2'] + total_abc['Penjualan Bln 3']) / 3
-                total_abc['AVG WMA'] = (total_abc['Penjualan Bln 1'] * 0.5) + (total_abc['Penjualan Bln 2'] * 0.3) + (total_abc['Penjualan Bln 3'] * 0.2)
+                # --- [UPDATE] Round Up WMA for Summary ALL ---
+                total_abc['AVG WMA'] = np.ceil((total_abc['Penjualan Bln 1'] * 0.5) + (total_abc['Penjualan Bln 2'] * 0.3) + (total_abc['Penjualan Bln 3'] * 0.2))
                 
                 metric_cols_total = ['Penjualan Bln 1', 'Penjualan Bln 2', 'Penjualan Bln 3', 'AVG Mean', 'AVG WMA']
                 for col in metric_cols_total:
@@ -1040,7 +1029,7 @@ elif page == "Hasil Analisa ABC":
                 object_cols_abc = []
                 for col in df_to_style_abc.columns:
                     if col not in keys:
-                        if "Ratio" in col or "Log" in col: float_cols_abc.append(col)
+                        if any(x in col for x in ["Ratio", "Log", "Avg Log"]): float_cols_abc.append(col)
                         elif pd.api.types.is_numeric_dtype(df_to_style_abc[col]): numeric_cols_abc.append(col)
                         else: object_cols_abc.append(col)
                             
