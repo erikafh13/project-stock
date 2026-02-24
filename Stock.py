@@ -10,6 +10,7 @@ from googleapiclient.http import MediaIoBaseUpload
 import io
 import os
 import re
+import time
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 
@@ -83,23 +84,48 @@ except Exception as e:
 @st.cache_data(ttl=600)
 def list_files_in_folder(_drive_service, folder_id):
     if not DRIVE_AVAILABLE: return []
-    query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder'"
-    response = _drive_service.files().list(q=query, fields="files(id, name)").execute()
-    return response.get('files', [])
+    
+    # Exponential Backoff Implementation
+    retries = 5
+    for i in range(retries):
+        try:
+            query = f"'{folder_id}' in parents and mimeType != 'application/vnd.google-apps.folder'"
+            response = _drive_service.files().list(q=query, fields="files(id, name)").execute()
+            return response.get('files', [])
+        except Exception:
+            if i == retries - 1:
+                return []
+            time.sleep(2**i)
+    return []
 
 @st.cache_data(ttl=600)
 def download_file_from_gdrive(file_id):
-    request = drive_service.files().get_media(fileId=file_id)
-    fh = BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while done is False:
-        status, done = downloader.next_chunk()
-    fh.seek(0)
-    return fh
+    if not DRIVE_AVAILABLE: return None
+    
+    # Exponential Backoff Implementation
+    retries = 5
+    for i in range(retries):
+        try:
+            request = drive_service.files().get_media(fileId=file_id)
+            fh = BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            fh.seek(0)
+            return fh
+        except Exception as e:
+            if i == retries - 1:
+                st.error(f"Gagal mengunduh file {file_id} setelah {retries} percobaan. Error: {e}")
+                return None
+            time.sleep(2**i)
+    return None
 
 def download_and_read(file_id, file_name, **kwargs):
     fh = download_file_from_gdrive(file_id)
+    if fh is None:
+        return pd.DataFrame() # Return empty if download fails
+    
     if file_name.endswith('.csv'):
         return pd.read_csv(fh, **kwargs)
     else:
@@ -107,12 +133,18 @@ def download_and_read(file_id, file_name, **kwargs):
 
 def read_produk_file(file_id):
     fh = download_file_from_gdrive(file_id)
+    if fh is None:
+        return pd.DataFrame()
+        
     df = pd.read_excel(fh, sheet_name="Sheet1 (2)", skiprows=6, usecols=[0, 1, 2, 3])
     df.columns = ['No. Barang', 'BRAND Barang', 'Kategori Barang', 'Nama Barang']
     return df
 
 def read_stock_file(file_id):
     fh = download_file_from_gdrive(file_id)
+    if fh is None:
+        return pd.DataFrame()
+
     df = pd.read_excel(fh, sheet_name="Sheet1", skiprows=9, header=None)
     header = ['No. Barang', 'Keterangan Barang', 'A - ITC', 'AT - TRANSIT ITC', 'B', 'BT - TRANSIT JKT', 'C', 'C6', 'CT - TRANSIT PUSAT', 'D - SMG', 'DT - TRANSIT SMG', 'E - JOG', 'ET - TRANSIT JOG', 'F - MLG', 'FT - TRANSIT MLG', 'H - BALI', 'HT - TRANSIT BALI', 'X', 'Y - SBY', 'Y3 - Display Y', 'YT - TRANSIT Y']
     df.columns = header[:len(df.columns)]
@@ -221,9 +253,18 @@ if page == "Input Data":
     if st.button("Muat / Muat Ulang Data Penjualan"):
         if penjualan_files_list:
             with st.spinner("Menggabungkan semua file penjualan..."):
-                df_penjualan = pd.concat([download_and_read(f['id'], f['name']) for f in penjualan_files_list], ignore_index=True)
-                st.session_state.df_penjualan = df_penjualan
-                st.success("Data penjualan berhasil dimuat ulang.")
+                dfs = []
+                for f in penjualan_files_list:
+                    df_temp = download_and_read(f['id'], f['name'])
+                    if not df_temp.empty:
+                        dfs.append(df_temp)
+                
+                if dfs:
+                    df_penjualan = pd.concat(dfs, ignore_index=True)
+                    st.session_state.df_penjualan = df_penjualan
+                    st.success("Data penjualan berhasil dimuat ulang.")
+                else:
+                    st.error("Gagal memuat data penjualan. Periksa koneksi atau file.")
         else:
             st.warning("⚠️ Tidak ada file penjualan ditemukan di folder Google Drive.")
 
@@ -249,8 +290,13 @@ if page == "Input Data":
     )
     if selected_produk_file:
         with st.spinner(f"Memuat file {selected_produk_file['name']}..."):
-            st.session_state.produk_ref = read_produk_file(selected_produk_file['id'])
-            st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
+            df_temp = read_produk_file(selected_produk_file['id'])
+            if not df_temp.empty:
+                st.session_state.produk_ref = df_temp
+                st.success(f"File produk referensi '{selected_produk_file['name']}' berhasil dimuat.")
+            else:
+                st.error(f"Gagal memuat file '{selected_produk_file['name']}'.")
+                
     if not st.session_state.produk_ref.empty:
         st.dataframe(st.session_state.produk_ref.head())
 
@@ -264,9 +310,14 @@ if page == "Input Data":
     )
     if selected_stock_file:
         with st.spinner(f"Memuat file {selected_stock_file['name']}..."):
-            st.session_state.df_stock = read_stock_file(selected_stock_file['id'])
-            st.session_state.stock_filename = selected_stock_file['name']
-            st.success(f"File stock '{selected_stock_file['name']}' berhasil dimuat.")
+            df_temp = read_stock_file(selected_stock_file['id'])
+            if not df_temp.empty:
+                st.session_state.df_stock = df_temp
+                st.session_state.stock_filename = selected_stock_file['name']
+                st.success(f"File stock '{selected_stock_file['name']}' berhasil dimuat.")
+            else:
+                st.error(f"Gagal memuat file stock '{selected_stock_file['name']}'.")
+                
     if not st.session_state.df_stock.empty:
         st.dataframe(st.session_state.df_stock.head())
     
@@ -284,10 +335,13 @@ if page == "Input Data":
         if selected_portal_file:
             with st.spinner(f"Memuat file {selected_portal_file['name']}..."):
                 df_portal = download_and_read(selected_portal_file['id'], selected_portal_file['name'])
-                st.session_state.df_portal = df_portal
-                st.session_state.df_portal_analyzed = pd.DataFrame()
-                st.success(f"File portal '{selected_portal_file['name']}' berhasil dimuat.")
-                st.dataframe(st.session_state.df_portal.head())
+                if not df_portal.empty:
+                    st.session_state.df_portal = df_portal
+                    st.session_state.df_portal_analyzed = pd.DataFrame()
+                    st.success(f"File portal '{selected_portal_file['name']}' berhasil dimuat.")
+                    st.dataframe(st.session_state.df_portal.head())
+                else:
+                    st.error(f"Gagal memuat file portal '{selected_portal_file['name']}'.")
         else:
             st.warning("⚠️ Harap pilih file portal terlebih dahulu.")
             
@@ -718,7 +772,7 @@ elif page == "Hasil Analisa Stock":
                     # Pastikan tidak ada spasi aneh
                     final_result_display.columns = final_result_display.columns.str.strip()
                     
-                    # --- [FITUR DIPERBARUI] Hitung SUM SO seluruh cabang sebagai input kategori ALL ---
+                    # --- [FITUR DIPERBARUI] Hitung DNA ABC Lengkap (Log, Avg Log, Ratio) untuk kategori ALL ---
                     all_sales_for_abc = (
                         final_result_display
                         .groupby(keys, as_index=False)
@@ -730,13 +784,23 @@ elif page == "Hasil Analisa Stock":
 
                     # Jalankan step kategorisasi lengkap (Log, Benchmark, Ratio) untuk grup ALL
                     all_classified = classify_abc_log_benchmark(all_sales_for_abc, metric_col='Total Kuantitas') 
-                    all_classified.rename(columns={'Kategori ABC (Log-Benchmark - Total Kuantitas)': 'All_Kategori ABC All'}, inplace=True)
+                    
+                    # Mapping kolom DNA (Log, Avg Log, Ratio) untuk ALL agar tampil di summary
+                    all_classified.rename(columns={
+                        'Log (10) Total Kuantitas': 'All_Log',
+                        'Avg Log Total Kuantitas': 'All_Avg Log',
+                        'Ratio Log Total Kuantitas': 'All_Ratio',
+                        'Kategori ABC (Log-Benchmark - Total Kuantitas)': 'All_Kategori ABC All'
+                    }, inplace=True)
+                    
                     total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
                     
                     pivot_result = pd.merge(pivot_result, total_agg, on=keys, how='left')
-                    pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Kategori ABC All']], on=keys, how='left')
+                    # Merge kolom DNA ALL ke tabel utama
+                    pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All']], on=keys, how='left')
                     
-                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Suggested_PO', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
+                    # Daftarkan kolom ALL di summary
+                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Suggested_PO', 'All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
                     df_to_style = pivot_result[final_display_cols].copy()
@@ -745,7 +809,7 @@ elif page == "Hasil Analisa Stock":
                     object_cols_to_format = []
                     for col in df_to_style.columns:
                         if col not in keys:
-                            if "Ratio" in col or "Log" in col: float_cols_to_format.append(col)
+                            if any(x in col for x in ["Ratio", "Log", "Avg Log"]): float_cols_to_format.append(col)
                             elif pd.api.types.is_numeric_dtype(df_to_style[col]): numeric_cols_to_format.append(col)
                             else: object_cols_to_format.append(col)
                     
@@ -1066,7 +1130,8 @@ elif page == "Hasil Analisa ABC":
                     st.subheader(f"Performa Penjualan per Kota (berdasarkan {metric_col})")
                     city_sales = result_display_dash.groupby('City')[metric_col].sum().sort_values(ascending=False)
                     st.bar_chart(city_sales)
-            else: st.info("Tidak ada data untuk ditampilkan di dashboard. Sesuaikan filter Anda.")
+            else:
+                st.info("Tidak ada data untuk ditampilkan di dashboard. Sesuaikan filter Anda.")
         else: st.info("Tidak ada data untuk ditampilkan di dashboard. Jalankan analisis atau sesuaikan filter Anda.")
 
 elif page == "Hasil Analisis Margin":
