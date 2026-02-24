@@ -165,7 +165,7 @@ def process_data(df):
             row['Office'] = True
         row['Gaming Standard / Design 2D'], row['Gaming Advanced / Design 3D'] = True, True
         return row
-    df.loc[case_mask] = df[case_mask].apply(map_case, axis=1)
+    df.loc[case_mask] = df[map_case, axis=1)
 
     # 5. PSU
     psu_mask = df['Kategori'] == 'Power Supply'
@@ -323,7 +323,10 @@ if uploaded_file:
                         with cols[j]:
                             st.markdown(f"""<div class="bundle-card"><div><span class="badge-stock">{res['tag']}</span><div class="bundle-title">{res['name']}</div><div class="price-text">Rp {res['total']:,.0f}</div></div></div>""", unsafe_allow_html=True)
                             if st.button("Pilih & Sesuaikan", key=f"btn_{i+j}", use_container_width=True):
+                                # Reset state detail saat memilih bundle baru
                                 st.session_state.selected_bundle = res.copy()
+                                if 'temp_bundle_parts' in st.session_state:
+                                    del st.session_state.temp_bundle_parts
                                 st.session_state.view = 'detail'
                                 st.rerun()
 
@@ -332,83 +335,106 @@ if uploaded_file:
         st.button("⬅️ Kembali", on_click=lambda: setattr(st.session_state, 'view', 'main'))
         st.subheader(f"🛠️ Penyesuaian: {bundle['name']}")
         
+        # Gunakan session state untuk menyimpan perubahan komponen secara real-time
+        if 'temp_bundle_parts' not in st.session_state:
+            st.session_state.temp_bundle_parts = bundle['parts'].copy()
+        
+        upd = st.session_state.temp_bundle_parts
         c_parts, c_sum = st.columns([2, 1])
+        
         with c_parts:
+            # Urutan tampilan kategori
             ord_display = ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'VGA', 'Casing PC', 'Power Supply', 'CPU Cooler']
             
-            # Ambil data yang tersedia di cabang dan kategori penggunaan saat ini
             available_detail = data[(data[b_col] > 0) & (data[u_cat] == True)]
             
-            upd = {}
             for cat in ord_display:
-                if cat in bundle['parts']:
-                    item = bundle['parts'][cat]
+                # Tentukan apakah kategori ini HARUS muncul atau OPSIONAL
+                is_mandatory = False
+                if cat in ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']:
+                    is_mandatory = True
+                
+                # Cek kebutuhan dinamis berdasarkan Processor yang sedang terpilih
+                current_p = upd.get('Processor')
+                if cat == 'VGA' and current_p is not None and current_p['NeedVGA'] == 1:
+                    is_mandatory = True
+                if cat == 'CPU Cooler' and current_p is not None and current_p['NeedCooler'] == 1:
+                    is_mandatory = True
+                if cat == 'Power Supply':
+                    needs_psu_check = True
+                    if u_cat == "Office" and upd.get('Casing PC', {}).get('HasPSU', 0) == 1:
+                        needs_psu_check = False
+                    if needs_psu_check:
+                        is_mandatory = True
+
+                # Jika kategori tidak ada di bundle awal tapi wajib karena ganti Processor, ambil default stok tertinggi
+                if cat not in upd and is_mandatory:
+                    cat_items = available_detail[available_detail['Kategori'] == cat]
+                    if cat == 'Motherboard' and current_p is not None:
+                        cat_items = cat_items[cat_items.apply(lambda m: is_compatible(current_p, m), axis=1)]
                     
-                    # Filter barang pengganti dalam kategori yang sama
+                    if not cat_items.empty:
+                        upd[cat] = cat_items.sort_values(b_col, ascending=False).iloc[0]
+
+                # Hanya tampilkan jika item ada di rincian
+                if cat in upd:
+                    item = upd[cat]
                     cat_options = available_detail[available_detail['Kategori'] == cat]
                     
-                    # Khusus Motherboard: Filter berdasarkan kompatibilitas Processor yang SEDANG DIPILIH
-                    if cat == 'Motherboard' and 'Processor' in upd:
-                        current_proc = upd['Processor']
-                        cat_options = cat_options[cat_options.apply(lambda m: is_compatible(current_proc, m), axis=1)]
-                    elif cat == 'Motherboard' and 'Processor' in bundle['parts']:
-                        current_proc = bundle['parts']['Processor']
-                        cat_options = cat_options[cat_options.apply(lambda m: is_compatible(current_proc, m), axis=1)]
+                    # Filter kompatibilitas dinamis untuk Motherboard
+                    if cat == 'Motherboard' and current_p is not None:
+                        cat_options = cat_options[cat_options.apply(lambda m: is_compatible(current_p, m), axis=1)]
                     
                     if cat_options.empty:
-                        st.error(f"Tidak ada opsi {cat} yang tersedia.")
+                        st.error(f"Tidak ada opsi {cat} yang kompatibel/tersedia.")
                         continue
 
-                    # UI Baris Komponen
-                    with st.expander(f"**[{cat}]** {item['Nama Accurate']} - Rp{item['Web']:,.0f}", expanded=False):
-                        # List pilihan barang (Nama + Harga)
+                    with st.expander(f"**[{cat}]** {item['Nama Accurate']} - Rp{item['Web']:,.0f}", expanded=(cat == 'Processor')):
                         options_list = cat_options.sort_values('Web')
                         display_list = options_list['Nama Accurate'] + " (Rp" + options_list['Web'].map('{:,.0f}'.format) + ")"
                         
-                        # Cari index barang yang sedang terpilih
                         try:
                             current_idx = options_list['Nama Accurate'].tolist().index(item['Nama Accurate'])
                         except ValueError:
                             current_idx = 0
                         
-                        # Selectbox untuk GANTI barang
-                        new_choice_str = st.selectbox(f"Ganti {cat}:", display_list, index=current_idx, key=f"select_{cat}")
+                        # Ganti barang
+                        new_choice_str = st.selectbox(f"Pilih {cat}:", display_list, index=current_idx, key=f"sel_{cat}")
                         new_choice_name = new_choice_str.split(" (Rp")[0]
                         new_item = options_list[options_list['Nama Accurate'] == new_choice_name].iloc[0]
                         
-                        # Tombol hapus
-                        if st.button(f"Hapus {cat}", key=f"del_{cat}"):
-                            st.toast(f"{cat} dihapus dari rincian.")
-                            continue
+                        # Jika ganti barang, update state dan rerun untuk menyesuaikan kategori lain
+                        if new_item['Nama Accurate'] != item['Nama Accurate']:
+                            upd[cat] = new_item
+                            st.rerun()
                         
-                        upd[cat] = new_item
+                        # Tombol hapus (hanya untuk kategori opsional)
+                        if not is_mandatory:
+                            if st.button(f"Hapus {cat}", key=f"del_{cat}"):
+                                del upd[cat]
+                                st.rerun()
                 st.divider()
-
-            # Validasi Aturan Setelah Ganti/Hapus
-            if 'Processor' in upd:
-                p = upd['Processor']
-                # Cek VGA
-                if p['NeedVGA'] == 1 and 'VGA' not in upd:
-                    st.warning(f"⚠️ Processor {p['Nama Accurate']} memerlukan VGA Tambahan.")
-                # Cek Cooler
-                if p['NeedCooler'] == 1 and 'CPU Cooler' not in upd:
-                    st.warning(f"⚠️ Processor {p['Nama Accurate']} memerlukan CPU Cooler.")
-                # Cek PSU
-                needs_psu_check = True
-                if u_cat == "Office" and upd.get('Casing PC', {}).get('HasPSU', 0) == 1:
-                    needs_psu_check = False
-                if needs_psu_check and 'Power Supply' not in upd:
-                    st.warning("⚠️ Bundling ini memerlukan Power Supply.")
-
-            st.session_state.selected_bundle['parts'] = upd
 
         with c_sum:
             st.markdown("### 🧾 Ringkasan")
             rakit = st.checkbox(f"Jasa Rakit (Rp {asm_fee:,.0f})?", value=False)
             t_items = sum(x['Web'] for x in upd.values())
             grand = t_items + (asm_fee if rakit else 0)
-            for k, v in upd.items(): st.text(f"• {v['Nama Accurate'][:35]}...")
+            
+            for k, v in upd.items(): 
+                st.text(f"• {v['Nama Accurate'][:35]}...")
             if rakit: st.text(f"• Jasa Rakit {u_cat}")
+            
             st.divider()
             st.subheader(f"Total: Rp{grand:,.0f}")
-            if st.button("✅ Konfirmasi", use_container_width=True): st.balloons()
+            
+            # Peringatan Validasi
+            if 'Processor' in upd:
+                p = upd['Processor']
+                if p['NeedVGA'] == 1 and 'VGA' not in upd:
+                    st.warning("⚠️ VGA wajib ditambahkan (Seri F).")
+                if p['NeedCooler'] == 1 and 'CPU Cooler' not in upd:
+                    st.warning("⚠️ CPU Cooler wajib ditambahkan (Tray).")
+            
+            if st.button("✅ Konfirmasi", use_container_width=True): 
+                st.balloons()
