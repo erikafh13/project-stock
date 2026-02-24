@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -94,7 +93,8 @@ def download_file_from_gdrive(file_id):
     fh = BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
     done = False
-    while not done: _, done = downloader.next_chunk()
+    while done is False:
+        status, done = downloader.next_chunk()
     fh.seek(0)
     return fh
 
@@ -718,16 +718,17 @@ elif page == "Hasil Analisa Stock":
                     # Pastikan tidak ada spasi aneh
                     final_result_display.columns = final_result_display.columns.str.strip()
                     
-                    # Hitung rata-rata SO antar cabang
+                    # --- [FITUR DIPERBARUI] Hitung SUM SO seluruh cabang sebagai input kategori ALL ---
                     all_sales_for_abc = (
                         final_result_display
                         .groupby(keys, as_index=False)
-                        .agg({'SO WMA': 'mean'})
+                        .agg({'SO WMA': 'sum'}) # Gunakan SUM (Total) seluruh cabang
                     )
 
                     all_sales_for_abc.rename(columns={'SO WMA': 'Total Kuantitas'}, inplace=True)
                     all_sales_for_abc['City'] = 'ALL'
 
+                    # Jalankan step kategorisasi lengkap (Log, Benchmark, Ratio) untuk grup ALL
                     all_classified = classify_abc_log_benchmark(all_sales_for_abc, metric_col='Total Kuantitas') 
                     all_classified.rename(columns={'Kategori ABC (Log-Benchmark - Total Kuantitas)': 'All_Kategori ABC All'}, inplace=True)
                     total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
@@ -1071,14 +1072,3 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
-
-
-
-
-
-
-
-
-
-
-
