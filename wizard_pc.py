@@ -96,7 +96,7 @@ def process_data(df):
     df.loc[cat_up.str.contains('PROCESSOR'), 'Kategori'] = 'Processor'
     df.loc[cat_up.str.contains('MOTHERBOARD'), 'Kategori'] = 'Motherboard'
     df.loc[cat_up.str.contains('MEMORY RAM|RAM'), 'Kategori'] = 'Memory RAM'
-    df.loc[cat_up.str.contains('SSD'), 'Kategori'] = 'SSD Internal'
+    df.loc[cat_up.str.contains('SSD Internal'), 'Kategori'] = 'SSD Internal'
     df.loc[cat_up.str.contains('VGA|GRAPHIC CARD'), 'Kategori'] = 'VGA'
     df.loc[cat_up.str.contains('Casing PC'), 'Kategori'] = 'Casing PC'
     df.loc[cat_up.str.contains('POWER SUPPLY|PSU'), 'Kategori'] = 'Power Supply'
