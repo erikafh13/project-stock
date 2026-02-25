@@ -98,9 +98,9 @@ def process_data(df):
     df.loc[cat_up.str.contains('MEMORY RAM|RAM'), 'Kategori'] = 'Memory RAM'
     df.loc[cat_up.str.contains('SSD'), 'Kategori'] = 'SSD Internal'
     df.loc[cat_up.str.contains('VGA|GRAPHIC CARD'), 'Kategori'] = 'VGA'
-    df.loc[cat_up.str.contains('CASING'), 'Kategori'] = 'Casing PC'
+    df.loc[cat_up.str.contains('Casing PC'), 'Kategori'] = 'Casing PC'
     df.loc[cat_up.str.contains('POWER SUPPLY|PSU'), 'Kategori'] = 'Power Supply'
-    df.loc[cat_up.str.contains('COOLER|COOLING|FAN PROCESSOR|HEATSINK'), 'Kategori'] = 'CPU Cooler'
+    df.loc[cat_up.str.contains('CPU COOLER'), 'Kategori'] = 'CPU Cooler'
     
     # Inisialisasi Kolom Penanda
     df['Office'] = False
