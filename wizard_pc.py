@@ -10,10 +10,11 @@ st.markdown("""
     .block-container { padding-top: 1.5rem !important; }
     
     .tier-section {
-        background-color: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 25px;
+        background-color: #f1f3f5;
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-top: 20px;
+        margin-bottom: 15px;
         border-left: 5px solid #1E88E5;
     }
     
@@ -228,76 +229,86 @@ def process_data(df):
             
     return df
 
-# --- 4. ENGINE REKOMENDASI (STRATEGI PENCARIAN LUAS) ---
+# --- 4. ENGINE REKOMENDASI (SMART PRICE-MATCHING) ---
 
-def generate_tier_bundles(df, branch_col, usage_cat, target_min, target_max, tier_label):
+def generate_tier_bundles(df, branch_col, usage_cat, target_min, target_max, tier_type):
+    """
+    tier_type: 
+    - 0 (Economy): Cari harga termurah (Ascending Price)
+    - 1 (Standard): Cari stok terbanyak di harga menengah
+    - 2 (Premium): Cari harga tertinggi (Descending Price)
+    """
     available_df = df[(df[branch_col] > 0) & (df[usage_cat] == True)].copy()
     
-    # Urutkan processor berdasarkan stok (Push Stock)
-    procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=[branch_col, 'Web'], ascending=[False, True])
+    # Sorting Processor berdasarkan strategi tier
+    if tier_type == 0: # Economy
+        procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=['Web', branch_col], ascending=[True, False])
+    elif tier_type == 2: # Premium
+        procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=['Web', branch_col], ascending=[False, False])
+    else: # Standard
+        procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=[branch_col, 'Web'], ascending=[False, True])
     
     results = []
-    # Coba bangun bundel dari setiap processor yang tersedia sampai dapat 3
     for _, pick_proc in procs.iterrows():
         if len(results) >= 3: break
         
         bundle = {'Processor': pick_proc}
         
-        # Cari komponen pendukung
-        # Prioritas 1: Ambil stok tertinggi yang masuk rentang tier
-        # Prioritas 2: Ambil barang apa saja (tetap kompatibel) yang masuk rentang tier
-        
-        def pick_best_fit(category, current_total, compatibility_func=None):
+        def pick_part(category, compatibility_func=None):
             items = available_df[available_df['Kategori'] == category]
             if compatibility_func:
                 items = items[items.apply(compatibility_func, axis=1)]
-            
             if items.empty: return None
             
-            # Cari yang membuat total harga mendekati titik tengah tier
-            target_piece = (target_min + target_max)/2 - current_total
-            # Sort berdasarkan kedekatan dengan target sisa budget per kategori sisa
-            items['diff'] = (items['Web'] - (target_piece / 4)).abs() # Dibagi sisa kategori utama
-            return items.sort_values(by=[branch_col, 'diff'], ascending=[False, True]).iloc[0]
+            # Strategi pemilihan barang pendukung mengikuti tier
+            if tier_type == 0: # Economy -> Ambil termurah
+                return items.sort_values(by=['Web', branch_col], ascending=[True, False]).iloc[0]
+            elif tier_type == 2: # Premium -> Ambil termahal
+                return items.sort_values(by=['Web', branch_col], ascending=[False, False]).iloc[0]
+            else: # Standard -> Ambil stok terbanyak
+                return items.sort_values(by=[branch_col, 'Web'], ascending=[False, True]).iloc[0]
 
         # Motherboard
-        mobo = pick_best_fit('Motherboard', pick_proc['Web'], lambda m: is_compatible(pick_proc, m))
+        mobo = pick_part('Motherboard', lambda m: is_compatible(pick_proc, m))
         if mobo is None: continue
         bundle['Motherboard'] = mobo
         
         # RAM
         mobo_ddr = mobo.get('DDR_Type')
-        ram = pick_best_fit('Memory RAM', pick_proc['Web'] + mobo['Web'], lambda r: r.get('DDR_Type') == mobo_ddr)
+        ram = pick_part('Memory RAM', lambda r: r.get('DDR_Type') == mobo_ddr)
         if ram is None: continue
         bundle['Memory RAM'] = ram
         
         # SSD & Casing
         for cat in ['SSD Internal', 'Casing PC']:
-            current_total = sum(x['Web'] for x in bundle.values())
-            item = pick_best_fit(cat, current_total)
+            item = pick_part(cat)
             if item is not None: bundle[cat] = item
 
-        # VGA (Kondisional)
+        # VGA (Wajib jika seri F)
         if pick_proc['NeedVGA'] == 1:
-            vga = pick_best_fit('VGA', sum(x['Web'] for x in bundle.values()))
+            vga = pick_part('VGA')
             if vga is not None: bundle['VGA'] = vga
+            else: continue # Skip if mandatory VGA missing
 
-        # PSU
+        # PSU (Wajib jika casing tidak include PSU)
         if not (usage_cat == "Office" and bundle.get('Casing PC', {}).get('HasPSU', 0) == 1):
-            psu = pick_best_fit('Power Supply', sum(x['Web'] for x in bundle.values()))
+            psu = pick_part('Power Supply')
             if psu is not None: bundle['Power Supply'] = psu
+            else: continue
 
-        # Cooler
+        # Cooler (Wajib jika Tray)
         if pick_proc['NeedCooler'] == 1:
-            cooler = pick_best_fit('CPU Cooler', sum(x['Web'] for x in bundle.values()))
+            cooler = pick_part('CPU Cooler')
             if cooler is not None: bundle['CPU Cooler'] = cooler
+            else: continue
             
         total = sum(x['Web'] for x in bundle.values())
         
-        # Simpan jika masuk rentang
-        if target_min <= total <= target_max:
+        # Masukkan ke list jika harganya mendekati atau masuk rentang
+        # Kita beri toleransi agar tidak kosong
+        if (target_min * 0.9) <= total <= (target_max * 1.1):
             results.append({
-                "name": f"Bundle {tier_label} - Opsi {len(results)+1}", 
+                "name": f"Opsi {len(results)+1}", 
                 "parts": bundle, 
                 "total": total
             })
@@ -324,32 +335,35 @@ if uploaded_file:
 
     rel_df = data[(data[u_cat] == True) & (data[b_col] > 0)]
     if rel_df.empty:
-        st.error("Stok tidak tersedia di cabang ini.")
+        st.error("Stok tidak tersedia di cabang ini untuk kategori yang dipilih.")
     else:
+        # Menghitung batas harga sistem
         min_p = rel_df.groupby('Kategori')['Web'].min().sum()
         max_p = rel_df.groupby('Kategori')['Web'].max().sum()
         
+        # Pembagian 3 Quartal
         price_range = max_p - min_p
-        tier_size = price_range / 3
+        q1 = min_p + (price_range / 3)
+        q2 = min_p + (2 * price_range / 3)
         
         tiers = [
-            {"label": "Economy Quartal", "min": min_p, "max": min_p + tier_size},
-            {"label": "Standard Quartal", "min": min_p + tier_size, "max": min_p + (2 * tier_size)},
-            {"label": "Premium Quartal", "min": min_p + (2 * tier_size), "max": max_p}
+            {"label": "Economy Quartal", "min": min_p, "max": q1, "type": 0},
+            {"label": "Standard Quartal", "min": q1, "max": q2, "type": 1},
+            {"label": "Premium Quartal", "min": q2, "max": max_p, "type": 2}
         ]
 
         if st.session_state.view == 'main':
-            st.info(f"📍 Menampilkan rekomendasi untuk {sel_branch} (Rentang: Rp {min_p:,.0f} - Rp {max_p:,.0f})")
+            st.info(f"📍 Menampilkan bundling untuk {sel_branch} (Estimasi Sistem: Rp {min_p:,.0f} - Rp {max_p:,.0f})")
             
-            # GABUNG JADI SATU TAMPILAN (TANPA TABS)
+            # GABUNG SEMUA QUARTAL DALAM 1 HALAMAN
             for i, t in enumerate(tiers):
                 st.markdown(f"""<div class="tier-section"><h3>📊 {t['label']}</h3>
-                <small>Estimasi: Rp {t['min']:,.0f} - Rp {t['max']:,.0f}</small></div>""", unsafe_allow_html=True)
+                <small>Range: Rp {t['min']:,.0f} - Rp {t['max']:,.0f}</small></div>""", unsafe_allow_html=True)
                 
-                recs = generate_tier_bundles(data, b_col, u_cat, t['min'], t['max'], t['label'])
+                recs = generate_tier_bundles(data, b_col, u_cat, t['min'], t['max'], t['type'])
                 
                 if not recs:
-                    st.warning(f"Kombinasi otomatis tidak tersedia di rentang {t['label']}. Silakan sesuaikan rincian manual.")
+                    st.warning(f"⚠️ Maaf, tidak ditemukan kombinasi otomatis untuk {t['label']} saat ini. Cek ketersediaan komponen di kategori ini.")
                 else:
                     cols = st.columns(3)
                     for j, res in enumerate(recs):
@@ -357,27 +371,27 @@ if uploaded_file:
                             st.markdown(f"""
                             <div class="bundle-card">
                                 <div>
-                                    <span class="badge-stock">REKOMENDASI STOK</span>
-                                    <div class="bundle-title">{res['name']}</div>
-                                    <div class="part-count">{len(res['parts'])} Komponen Included</div>
+                                    <span class="badge-stock">REKOMENDASI SISTEM</span>
+                                    <div class="bundle-title">{t['label']} - {res['name']}</div>
+                                    <div class="part-count">{len(res['parts'])} Komponen Terpilih</div>
                                     <div class="price-text">Rp {res['total']:,.0f}</div>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
                             if st.button(f"Pilih & Sesuaikan", key=f"btn_{i}_{j}", use_container_width=True):
                                 st.session_state.selected_bundle = res.copy()
+                                st.session_state.selected_tier = t['label']
                                 if 'temp_parts' in st.session_state: del st.session_state.temp_parts
                                 st.session_state.view = 'detail'
                                 st.rerun()
-                st.markdown("<br>", unsafe_allow_html=True)
 
         elif st.session_state.view == 'detail':
             bundle = st.session_state.selected_bundle
             if 'temp_parts' not in st.session_state: st.session_state.temp_parts = bundle['parts'].copy()
             upd = st.session_state.temp_parts
 
-            st.button("⬅️ Kembali ke Rekomendasi", on_click=lambda: setattr(st.session_state, 'view', 'main'))
-            st.subheader(f"🛠️ Sesuaikan: {bundle['name']}")
+            st.button("⬅️ Kembali ke Menu Utama", on_click=lambda: setattr(st.session_state, 'view', 'main'))
+            st.subheader(f"🛠️ Kustomisasi Bundling: {st.session_state.selected_tier}")
             
             c_parts, c_sum = st.columns([2, 1])
             with c_parts:
@@ -407,7 +421,7 @@ if uploaded_file:
                             labels = cat_options.sort_values('Web')['Nama Accurate'] + " (Rp " + cat_options.sort_values('Web')['Web'].map('{:,.0f}'.format) + ")"
                             try: idx = cat_options.sort_values('Web')['Nama Accurate'].tolist().index(item['Nama Accurate'])
                             except: idx = 0
-                            new_pick = st.selectbox(f"Ubah {cat}:", labels, index=idx, key=f"sel_{cat}")
+                            new_pick = st.selectbox(f"Ganti {cat}:", labels, index=idx, key=f"sel_{cat}")
                             new_item = cat_options[cat_options['Nama Accurate'] == new_pick.split(" (Rp ")[0]].iloc[0]
                             if new_item['Nama Accurate'] != item['Nama Accurate']:
                                 upd[cat] = new_item
@@ -418,9 +432,9 @@ if uploaded_file:
                     st.divider()
 
             with c_sum:
-                st.markdown("### 📋 Ringkasan Pesanan")
+                st.markdown("### 📋 Ringkasan Bundling")
                 asm_fee = ASSEMBLY_FEES[u_cat]
-                rakit = st.checkbox(f"Biaya Perakitan PC ({u_cat}: Rp {asm_fee:,.0f})", value=True)
+                rakit = st.checkbox(f"Biaya Rakit ({u_cat}: Rp {asm_fee:,.0f})", value=True)
                 total_items = sum(x['Web'] for x in upd.values())
                 grand = total_items + (asm_fee if rakit else 0)
                 
@@ -432,4 +446,4 @@ if uploaded_file:
                 st.subheader(f"Total: Rp {grand:,.0f}")
                 if st.button("✅ Konfirmasi", use_container_width=True, type="primary"): st.balloons()
 else:
-    st.info("👋 Silakan upload file Data Portal untuk memulai.")
+    st.info("👋 Silakan upload file Data Portal (CSV/Excel) untuk memulai sistem bundling pintar.")
