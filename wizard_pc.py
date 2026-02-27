@@ -5,61 +5,68 @@ import re
 # --- 1. KONFIGURASI & CSS CUSTOM ---
 st.set_page_config(page_title="Sistem Bundling PC - Pro", layout="wide")
 
-# CSS untuk membuat tampilan kartu lebih modern dan interaktif
+# CSS untuk membuat tampilan lebih padat dan efisien (tidak terlalu renggang)
 st.markdown("""
 <style>
+    /* Mengurangi margin antar elemen bawaan Streamlit */
+    .block-container {
+        padding-top: 2rem !important;
+    }
+    
+    /* Kartu Bundling lebih rapat */
     .bundle-card {
         border: 1px solid #e1e4e8;
-        border-radius: 12px;
-        padding: 20px;
+        border-radius: 10px;
+        padding: 15px;
         background-color: #ffffff;
-        margin-bottom: 24px;
-        transition: all 0.3s ease;
+        margin-bottom: 15px;
+        transition: all 0.2s ease;
         height: 100%;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
     .bundle-card:hover {
-        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         border-color: #1E88E5;
-        transform: translateY(-5px);
+        transform: translateY(-3px);
     }
     .price-text {
         color: #1E88E5;
-        font-size: 24px;
+        font-size: 20px;
         font-weight: 800;
-        margin: 12px 0;
+        margin: 5px 0;
     }
     .bundle-title {
         color: #2c3e50;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 700;
-        margin-bottom: 8px;
-        line-height: 1.3;
-        min-height: 48px;
+        margin-bottom: 5px;
+        line-height: 1.2;
+        min-height: 40px;
     }
     .badge-stock {
         background-color: #e3f2fd;
         color: #1976d2;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 11px;
+        padding: 2px 10px;
+        border-radius: 15px;
+        font-size: 10px;
         font-weight: 700;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
         display: inline-block;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
     }
     .part-count {
         color: #7f8c8d;
-        font-size: 13px;
-        margin-bottom: 10px;
+        font-size: 12px;
+        margin-bottom: 5px;
     }
-    section[data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-        border-right: 1px solid #eee;
+    
+    /* Mengatur jarak antar baris di ringkasan pesanan */
+    .summary-item {
+        margin-bottom: 0px !important;
+        padding: 5px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -213,7 +220,7 @@ def process_data(df):
         # 4. Aturan SSD (REVISI: Kecualikan WDS120G2G0B)
         elif cat == 'SSD Internal':
             if 'WDS120G2G0B' in name:
-                continue # Abaikan produk ini
+                continue 
             df.loc[idx, ['Office', 'Gaming Standard / Design 2D']] = True
             if 'M.2 NVME' in name:
                 df.at[idx, 'Gaming Advanced / Design 3D'] = True
@@ -253,13 +260,13 @@ def generate_bundles(df, branch_col, usage_cat, target_min, target_max):
     available_df = df[(df[branch_col] > 0) & (df[usage_cat] == True)].copy()
     
     bundle_types = [
-        {"name": "Utama Stok Tinggi", "sort": [branch_col, 'Web'], "asc": [False, True], "idx": 0, "tag": "STOK TERBAIK"},
+        {"name": "Utama Stok Tinggi", "sort": [branch_col, 'Web'], "asc": [False, True], "idx": 0, "tag": "BEST STOCK"},
         {"name": "Pilihan Populer", "sort": [branch_col, 'Web'], "asc": [False, True], "idx": 1, "tag": "POPULAR"},
         {"name": "Pilihan Stabil", "sort": [branch_col, 'Web'], "asc": [False, True], "idx": 2, "tag": "STABLE"},
-        {"name": "Budget Ekstrem", "sort": ['Web', branch_col], "asc": [True, False], "idx": 0, "tag": "HARGA TERENDAH"},
-        {"name": "Smart Value", "sort": ['Web', branch_col], "asc": [True, False], "idx": 1, "tag": "DIREKOMENDASIKAN"},
+        {"name": "Budget Ekstrem", "sort": ['Web', branch_col], "asc": [True, False], "idx": 0, "tag": "BEST PRICE"},
+        {"name": "Smart Value", "sort": ['Web', branch_col], "asc": [True, False], "idx": 1, "tag": "RECOMMENDED"},
         {"name": "Sweet Spot Seimbang", "sort": ['Web', branch_col], "asc": [True, False], "idx": "mid", "tag": "BALANCED"},
-        {"name": "Performa Mid-Range", "sort": ['Web', branch_col], "asc": [False, False], "idx": 2, "tag": "PERFORMA"},
+        {"name": "Performa Mid-Range", "sort": ['Web', branch_col], "asc": [False, False], "idx": 2, "tag": "PERFORMANCE"},
         {"name": "Premium Enthusiast", "sort": ['Web', branch_col], "asc": [False, False], "idx": 1, "tag": "PREMIUM"},
         {"name": "Luxury Flagship", "sort": ['Web', branch_col], "asc": [False, False], "idx": 0, "tag": "ELITE"}
     ]
@@ -369,7 +376,7 @@ if uploaded_file:
                                 <div>
                                     <span class="badge-stock">{res['tag']}</span>
                                     <div class="bundle-title">{res['name']}</div>
-                                    <div class="part-count">{len(res['parts'])} Komponen Termasuk</div>
+                                    <div class="part-count">{len(res['parts'])} Komponen Included</div>
                                     <div class="price-text">Rp {res['total']:,.0f}</div>
                                 </div>
                             </div>
@@ -432,7 +439,6 @@ if uploaded_file:
                         if not is_mandatory and st.button(f"Hapus {cat}", key=f"del_{cat}"):
                             del upd[cat]
                             st.rerun()
-                st.divider()
 
         with c_sum:
             st.markdown("### 📋 Ringkasan Pesanan")
@@ -443,28 +449,24 @@ if uploaded_file:
             total_items = sum(x['Web'] for x in upd.values())
             grand = total_items + (asm_fee if rakit else 0)
             
+            # Format ringkasan yang lebih rapat (compact)
             for k, v in upd.items():
-                st.markdown(f"**{k}**")
-                st.caption(v['Nama Accurate'])
-                st.write(f"Rp {v['Web']:,.0f}")
-                st.divider()
+                st.markdown(f"**{k}**: {v['Nama Accurate']}  \n`Rp {v['Web']:,.0f}`")
             
             if rakit:
-                st.markdown(f"**Jasa Rakit ({u_cat})**")
-                st.write(f"Rp {asm_fee:,.0f}")
-                st.divider()
+                st.markdown(f"**Biaya Rakit**: `Rp {asm_fee:,.0f}`")
             
+            st.divider()
             st.subheader(f"Total: Rp {grand:,.0f}")
             
-            # Validasi akhir
             if 'Processor' in upd:
                 p = upd['Processor']
-                if p['NeedVGA'] == 1 and 'VGA' not in upd: st.warning("⚠️ Kartu Grafis (VGA) diperlukan.")
-                if p['NeedCooler'] == 1 and 'CPU Cooler' not in upd: st.warning("⚠️ CPU Cooler diperlukan.")
+                if p['NeedVGA'] == 1 and 'VGA' not in upd: st.warning("⚠️ VGA diperlukan.")
+                if p['NeedCooler'] == 1 and 'CPU Cooler' not in upd: st.warning("⚠️ Cooler diperlukan.")
 
-            if st.button("✅ Konfirmasi Bundling", use_container_width=True, type="primary"):
+            if st.button("✅ Konfirmasi", use_container_width=True, type="primary"):
                 st.balloons()
-                st.success("Konfigurasi Berhasil Disimpan!")
+                st.success("Tersimpan!")
 
 else:
     st.info("👋 Silakan upload file Data Portal (CSV/Excel) untuk memulai.")
