@@ -61,7 +61,6 @@ st.markdown("""
         font-weight: 500;
         margin-bottom: 10px;
     }
-    /* Merapatkan spasi Streamlit */
     .stMarkdown { line-height: 1.2 !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -230,35 +229,34 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
     available_df = df[(df[branch_col] > 0) & (df[usage_cat] == True)].copy()
     
     strategies = [
-        {"label": "Harga Termurah", "sort_asc": True, "p_idx": 0, "class": "badge-cheapest"},
-        {"label": "Harga Tengah", "sort_asc": False, "p_idx": "mid", "class": "badge-mid"},
-        {"label": "Harga Termahal", "sort_asc": False, "p_idx": 0, "class": "badge-premium"}
+        {"label": "Harga Termurah", "sort_asc": True, "p_idx_type": "head", "class": "badge-cheapest"},
+        {"label": "Harga Tengah", "sort_asc": True, "p_idx_type": "mid", "class": "badge-mid"},
+        {"label": "Harga Termahal", "sort_asc": False, "p_idx_type": "head", "class": "badge-premium"}
     ]
     
     results = []
     
     for strat in strategies:
+        # Sorting processor berdasarkan strategi
         if strat['label'] == "Harga Termurah":
             procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=['Web', branch_col], ascending=[True, False])
         elif strat['label'] == "Harga Termahal":
             procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=['Web', branch_col], ascending=[False, False])
-        else: # Tengah
-            procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=[branch_col, 'Web'], ascending=[False, True])
+        else: # Harga Tengah
+            # Ambil semua processor, cari yang ada di urutan tengah
+            procs_all = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=['Web'], ascending=True)
+            if procs_all.empty: continue
+            mid_start = len(procs_all) // 2 - 1 if len(procs_all) > 2 else 0
+            procs = procs_all.iloc[max(0, mid_start):] # Mulai dari tengah
             
         if procs.empty: continue
         
         # Ambil sampai 3 opsi per strategi yang masuk range harga
+        count_for_strat = 0
         for i in range(len(procs)):
-            if len([r for r in results if r['strategy'] == strat['label']]) >= 3: break
+            if count_for_strat >= 3: break
             
-            if strat['p_idx'] == "mid":
-                p_idx = (len(procs) // 2) + i if i % 2 == 0 else (len(procs) // 2) - ((i+1)//2)
-            else:
-                p_idx = i
-            
-            if p_idx < 0 or p_idx >= len(procs): continue
-            
-            pick_proc = procs.iloc[p_idx]
+            pick_proc = procs.iloc[i]
             bundle, total = {'Processor': pick_proc}, pick_proc['Web']
             
             def pick_part(category, compatibility_func=None):
@@ -267,13 +265,15 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
                     items = items[items.apply(compatibility_func, axis=1)]
                 if items.empty: return None
                 
+                # Strategi pemilihan barang pendukung mengikuti tier bundel
                 if strat['label'] == "Harga Termurah":
                     return items.sort_values(by=['Web', branch_col], ascending=[True, False]).iloc[0]
                 elif strat['label'] == "Harga Termahal":
                     return items.sort_values(by=['Web', branch_col], ascending=[False, False]).iloc[0]
-                else:
+                else: # Tengah -> Ambil yang stok paling banyak di harga tengah
                     return items.sort_values(by=[branch_col, 'Web'], ascending=[False, True]).iloc[0]
 
+            # Core components
             mobo = pick_part('Motherboard', lambda m: is_compatible(pick_proc, m))
             if mobo is None: continue
             bundle['Motherboard'] = mobo
@@ -290,6 +290,7 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
                     bundle[cat] = item
                     total += item['Web']
 
+            # Mandatory conditionals
             if pick_proc['NeedVGA'] == 1:
                 vga = pick_part('VGA')
                 if vga is not None: bundle['VGA'] = vga; total += vga['Web']
@@ -310,16 +311,17 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
                 results.append({
                     "strategy": strat['label'],
                     "badge_class": strat['class'],
-                    "name": f"{strat['label']} #{len([r for r in results if r['strategy'] == strat['label']]) + 1}",
+                    "name": f"{strat['label']} #{count_for_strat + 1}",
                     "parts": bundle,
                     "total": total
                 })
+                count_for_strat += 1
             
     return results
 
 # --- 5. UI LAYER ---
 
-st.title("🛒 PC Wizard Marketplace")
+st.title("🛒 PC Wizard")
 
 if 'view' not in st.session_state: st.session_state.view = 'main'
 if 'selected_bundle' not in st.session_state: st.session_state.selected_bundle = None
@@ -384,7 +386,7 @@ if uploaded_file:
         if 'temp_parts' not in st.session_state: st.session_state.temp_parts = bundle['parts'].copy()
         upd = st.session_state.temp_parts
 
-        st.button("⬅️ Kembali ke Marketplace", on_click=lambda: setattr(st.session_state, 'view', 'main'))
+        st.button("⬅️ Kembali", on_click=lambda: setattr(st.session_state, 'view', 'main'))
         st.subheader(f"🛠️ Sesuaikan {bundle['name']}")
         
         c_parts, c_sum = st.columns([2, 1])
@@ -443,4 +445,4 @@ if uploaded_file:
                 st.balloons()
                 st.success("Berhasil!")
 else:
-    st.info("👋 Silakan upload file Data Portal (CSV/Excel) untuk memulai.")
+    st.info("👋 Silakan upload file Data Portal (CSV/Excel) untuk memulai sistem bundling pintar.")
