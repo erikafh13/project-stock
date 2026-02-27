@@ -100,6 +100,13 @@ def get_cpu_info(name):
             info["socket"] = "AM4"
     return info
 
+def get_ddr_type(name):
+    """Mendeteksi tipe DDR dari nama produk (Motherboard atau RAM)."""
+    name = name.upper()
+    if 'DDR5' in name or ' D5' in name: return 'DDR5'
+    if 'DDR4' in name or ' D4' in name: return 'DDR4'
+    return None
+
 def is_compatible(cpu_row, mobo_row):
     gen = cpu_row['CPU_Gen']
     socket = cpu_row['CPU_Socket']
@@ -144,6 +151,7 @@ def process_data(df):
     df['CPU_Gen'] = None
     df['CPU_Socket'] = None
     df['Mobo_Series'] = None
+    df['DDR_Type'] = None # Kolom baru untuk kompatibilitas RAM-Mobo
 
     for idx, row in df.iterrows():
         name = row['Nama Accurate'].upper()
@@ -173,9 +181,13 @@ def process_data(df):
                 df.at[idx, 'Office'] = True
             df.at[idx, 'Gaming Standard / Design 2D'] = True
             df.at[idx, 'Gaming Advanced / Design 3D'] = True
+            # Simpan tipe DDR
+            df.at[idx, 'DDR_Type'] = get_ddr_type(name)
 
         elif cat == 'Memory RAM':
             df.loc[idx, ['Office', 'Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']] = True
+            # Simpan tipe DDR
+            df.at[idx, 'DDR_Type'] = get_ddr_type(name)
 
         elif cat == 'SSD Internal':
             df.loc[idx, ['Office', 'Gaming Standard / Design 2D']] = True
@@ -239,8 +251,16 @@ def generate_bundles(df, branch_col, usage_cat, target_min, target_max):
         bundle['Motherboard'] = comp.iloc[0]
         total += bundle['Motherboard']['Web']
         
+        # Ambil tipe DDR motherboard untuk menyaring RAM
+        mobo_ddr = bundle['Motherboard'].get('DDR_Type')
+        
         for cat in ['Memory RAM', 'SSD Internal', 'Casing PC']:
             items = available_df[available_df['Kategori'] == cat].sort_values(by=bt['sort'], ascending=bt['asc'])
+            
+            # Saring RAM berdasarkan tipe DDR motherboard
+            if cat == 'Memory RAM' and mobo_ddr:
+                items = items[items['DDR_Type'] == mobo_ddr]
+                
             if not items.empty:
                 bundle[cat] = items.iloc[0]
                 total += bundle[cat]['Web']
@@ -340,35 +360,54 @@ if uploaded_file:
             for cat in DISPLAY_ORDER:
                 is_mandatory = cat in ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']
                 current_p = upd.get('Processor')
+                current_m = upd.get('Motherboard')
                 
                 if cat == 'VGA' and current_p is not None and current_p['NeedVGA'] == 1: is_mandatory = True
                 if cat == 'CPU Cooler' and current_p is not None and current_p['NeedCooler'] == 1: is_mandatory = True
                 if cat == 'Power Supply' and not (u_cat == "Office" and upd.get('Casing PC', {}).get('HasPSU', 0) == 1): is_mandatory = True
 
+                # Saring opsi berdasarkan kompatibilitas
+                cat_options = available_detail[available_detail['Kategori'] == cat]
+                
+                if cat == 'Motherboard' and current_p is not None:
+                    cat_options = cat_options[cat_options.apply(lambda m: is_compatible(current_p, m), axis=1)]
+                
+                if cat == 'Memory RAM' and current_m is not None:
+                    mobo_ddr = current_m.get('DDR_Type')
+                    if mobo_ddr:
+                        cat_options = cat_options[cat_options['DDR_Type'] == mobo_ddr]
+
+                # Jika kategori wajib tidak ada atau tidak kompatibel, pilih default
                 if cat not in upd and is_mandatory:
-                    cat_items = available_detail[available_detail['Kategori'] == cat]
-                    if cat == 'Motherboard' and current_p is not None:
-                        cat_items = cat_items[cat_items.apply(lambda m: is_compatible(current_p, m), axis=1)]
-                    if not cat_items.empty: upd[cat] = cat_items.sort_values(b_col, ascending=False).iloc[0]
+                    if not cat_options.empty: 
+                        upd[cat] = cat_options.sort_values(b_col, ascending=False).iloc[0]
 
                 if cat in upd:
                     item = upd[cat]
-                    cat_options = available_detail[available_detail['Kategori'] == cat]
-                    if cat == 'Motherboard' and current_p is not None:
-                        cat_options = cat_options[cat_options.apply(lambda m: is_compatible(current_p, m), axis=1)]
                     
-                    if cat_options.empty: continue
+                    if cat_options.empty: 
+                        st.error(f"⚠️ Tidak ada opsi {cat} yang kompatibel/tersedia.")
+                        continue
 
                     with st.expander(f"📦 **[{cat}]** {item['Nama Accurate']} - Rp{item['Web']:,.0f}", expanded=(cat == 'Processor')):
+                        # Label untuk dropdown
                         opt_list = cat_options.sort_values('Web')
                         labels = opt_list['Nama Accurate'] + " (Rp" + opt_list['Web'].map('{:,.0f}'.format) + ")"
-                        try: idx = opt_list['Nama Accurate'].tolist().index(item['Nama Accurate'])
-                        except: idx = 0
+                        
+                        try: 
+                            idx = opt_list['Nama Accurate'].tolist().index(item['Nama Accurate'])
+                        except: 
+                            idx = 0
+                            # Jika item yang terpilih tidak ada di list kompatibel, paksa pilih pertama
+                            upd[cat] = opt_list.iloc[0]
+                            st.rerun()
                         
                         new_pick = st.selectbox(f"Ubah {cat}:", labels, index=idx, key=f"sel_{cat}")
                         new_item = opt_list[opt_list['Nama Accurate'] == new_pick.split(" (Rp")[0]].iloc[0]
+                        
                         if new_item['Nama Accurate'] != item['Nama Accurate']:
                             upd[cat] = new_item
+                            # Jika Mobo ganti, RAM mungkin perlu dicek ulang di render berikutnya
                             st.rerun()
                         
                         if not is_mandatory and st.button(f"Hapus {cat}", key=f"del_{cat}", type="secondary"):
@@ -397,6 +436,14 @@ if uploaded_file:
                 st.divider()
             
             st.subheader(f"Total: Rp{grand:,.0f}")
+            
+            # Peringatan tambahan untuk manual check
+            current_m = upd.get('Motherboard')
+            current_r = upd.get('Memory RAM')
+            if current_m is not None and current_r is not None:
+                if current_m.get('DDR_Type') != current_r.get('DDR_Type'):
+                    st.error(f"❌ RAM {current_r.get('DDR_Type')} tidak cocok dengan Motherboard {current_m.get('DDR_Type')}!")
+
             if st.button("✅ Konfirmasi Bundling", use_container_width=True, type="primary"):
                 st.balloons()
                 st.success("Konfigurasi Berhasil Disimpan!")
