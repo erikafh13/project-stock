@@ -163,7 +163,8 @@ def process_data(df):
         if 'ARMAGGEDDON' in name:
             return row
             
-        if 'PSU' in name:
+        # Aturan Baru: VALCAS juga dianggap sudah termasuk PSU
+        if 'PSU' in name or 'VALCAS' in name:
             row['Office'], row['HasPSU'] = True, 1
         else:
             row['Office'] = True
