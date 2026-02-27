@@ -169,8 +169,13 @@ def process_data(df):
 
     # 5. PSU
     psu_mask = df['Kategori'] == 'Power Supply'
-    df.loc[psu_mask & (df['Web'] < 500000), 'Office'] = True
-    df.loc[psu_mask, ['Gaming Standard / Design 2D', 'Gaming Advanced / Design 3D']] = True
+    def map_psu(row):
+        price = row['Web']
+        if price <= 300000: row['Office'] = True
+        if 250000 <= price <= 1000000: row['Gaming Standard / Design 2D'] = True
+        if price > 500000: row['Gaming Advanced / Design 3D'] = True
+        return row
+    df.loc[psu_mask] = df[psu_mask].apply(map_psu, axis=1)
 
     # 6. CPU COOLER
     cooler_mask = df['Kategori'] == 'CPU Cooler'
