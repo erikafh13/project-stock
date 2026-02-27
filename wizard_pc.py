@@ -31,7 +31,7 @@ st.markdown("""
         color: #1E88E5;
         font-size: 22px;
         font-weight: 800;
-        margin: 10px 0;
+        margin: 8px 0;
     }
     .bundle-title {
         color: #2c3e50;
@@ -195,8 +195,10 @@ def process_data(df):
                     if 32 <= size <= 64: df.at[idx, 'Gaming Advanced / Design 3D'] = True
 
         elif cat == 'SSD Internal':
+            # Kecualikan WDS120G2G0B
             if 'WDS120G2G0B' in name: continue 
             df.loc[idx, ['Office', 'Gaming Standard / Design 2D']] = True
+            # Gaming Advanced wajib M.2 NVMe
             if 'M.2 NVME' in name: df.at[idx, 'Gaming Advanced / Design 3D'] = True
 
         elif cat == 'VGA':
@@ -229,9 +231,9 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
     available_df = df[(df[branch_col] > 0) & (df[usage_cat] == True)].copy()
     
     strategies = [
-        {"label": "Harga Termurah", "sort_asc": True, "p_idx_type": "head", "class": "badge-cheapest"},
-        {"label": "Harga Tengah", "sort_asc": True, "p_idx_type": "mid", "class": "badge-mid"},
-        {"label": "Harga Termahal", "sort_asc": False, "p_idx_type": "head", "class": "badge-premium"}
+        {"label": "Harga Termurah", "sort_asc": True, "class": "badge-cheapest"},
+        {"label": "Harga Tengah", "sort_asc": "mid", "class": "badge-mid"},
+        {"label": "Harga Termahal", "sort_asc": False, "class": "badge-premium"}
     ]
     
     results = []
@@ -243,11 +245,11 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
         elif strat['label'] == "Harga Termahal":
             procs = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=['Web', branch_col], ascending=[False, False])
         else: # Harga Tengah
-            # Ambil semua processor, cari yang ada di urutan tengah
             procs_all = available_df[available_df['Kategori'] == 'Processor'].sort_values(by=['Web'], ascending=True)
             if procs_all.empty: continue
-            mid_start = len(procs_all) // 2 - 1 if len(procs_all) > 2 else 0
-            procs = procs_all.iloc[max(0, mid_start):] # Mulai dari tengah
+            # Ambil processor dari tengah-tengah daftar
+            start_idx = max(0, (len(procs_all) // 2) - 5)
+            procs = procs_all.iloc[start_idx:] 
             
         if procs.empty: continue
         
@@ -265,12 +267,12 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
                     items = items[items.apply(compatibility_func, axis=1)]
                 if items.empty: return None
                 
-                # Strategi pemilihan barang pendukung mengikuti tier bundel
+                # Strategi pemilihan barang pendukung
                 if strat['label'] == "Harga Termurah":
                     return items.sort_values(by=['Web', branch_col], ascending=[True, False]).iloc[0]
                 elif strat['label'] == "Harga Termahal":
                     return items.sort_values(by=['Web', branch_col], ascending=[False, False]).iloc[0]
-                else: # Tengah -> Ambil yang stok paling banyak di harga tengah
+                else: # Tengah -> Cari yang stok paling banyak
                     return items.sort_values(by=[branch_col, 'Web'], ascending=[False, True]).iloc[0]
 
             # Core components
@@ -321,12 +323,12 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
 
 # --- 5. UI LAYER ---
 
-st.title("🛒 PC Wizard")
+st.title("🛒 PC Wizard Marketplace")
 
 if 'view' not in st.session_state: st.session_state.view = 'main'
 if 'selected_bundle' not in st.session_state: st.session_state.selected_bundle = None
 
-uploaded_file = st.file_uploader("Upload Data Portal", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("Upload Data Portal (CSV atau XLSX)", type=["csv", "xlsx"])
 
 if uploaded_file:
     raw_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
@@ -351,13 +353,14 @@ if uploaded_file:
         p_min, p_max = 0.0, 100000000.0
 
     if st.session_state.view == 'main':
-        st.info(f"📍 Menampilkan pilihan bundling di {sel_branch}")
+        st.info(f"📍 Menampilkan pilihan bundling di {sel_branch} (Range Tersedia: Rp {p_min:,.0f} - Rp {p_max:,.0f})")
         
         all_bundles = generate_market_bundles(data, b_col, u_cat, p_min, p_max)
         
         if not all_bundles:
-            st.warning("Maaf, tidak ada bundling yang sesuai dengan budget atau ketersediaan stok saat ini.")
+            st.warning("Maaf, tidak ada bundling yang sesuai dengan kriteria di cabang ini. Coba ubah range harga atau kategori.")
         else:
+            # Tampilkan dalam grid marketplace (3 per baris)
             for i in range(0, len(all_bundles), 3):
                 cols = st.columns(3)
                 for j in range(3):
@@ -386,7 +389,7 @@ if uploaded_file:
         if 'temp_parts' not in st.session_state: st.session_state.temp_parts = bundle['parts'].copy()
         upd = st.session_state.temp_parts
 
-        st.button("⬅️ Kembali", on_click=lambda: setattr(st.session_state, 'view', 'main'))
+        st.button("⬅️ Kembali ke Marketplace", on_click=lambda: setattr(st.session_state, 'view', 'main'))
         st.subheader(f"🛠️ Sesuaikan {bundle['name']}")
         
         c_parts, c_sum = st.columns([2, 1])
