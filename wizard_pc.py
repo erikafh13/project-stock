@@ -159,6 +159,10 @@ def process_data(df):
     case_mask = df['Kategori'] == 'Casing PC'
     def map_case(row):
         name = row['Nama Accurate'].upper()
+        # EXCLUSION: Kecualikan brand Armaggeddon dari rujukan bundling
+        if 'ARMAGGEDDON' in name:
+            return row
+            
         if 'PSU' in name:
             row['Office'], row['HasPSU'] = True, 1
         else:
