@@ -167,6 +167,7 @@ def process_data(df):
             if 'I3' in name or 'I5' in name:
                 df.at[idx, 'Office'] = True
                 df.at[idx, 'Gaming Standard / Design 2D'] = True
+            # ATURAN: Gaming Advanced Wajib Seri F
             if any(x in name for x in ['I5', 'I7', 'I9', 'ULTRA', 'RYZEN']) and is_f_series:
                 df.at[idx, 'Gaming Advanced / Design 3D'] = True
 
@@ -226,7 +227,7 @@ def process_data(df):
 # --- 4. ENGINE REKOMENDASI & HARGA ---
 
 def assemble_single_bundle(available_df, pick_p, strategy_label, branch_col, usage_cat):
-    """Fungsi helper untuk merakit satu paket bundling berdasarkan strategi tertentu."""
+    """Merakit satu paket lengkap berdasarkan strategi harga."""
     bundle, total = {'Processor': pick_p}, pick_p['Web']
     
     def pick_part(category, compatibility_func=None):
@@ -235,11 +236,12 @@ def assemble_single_bundle(available_df, pick_p, strategy_label, branch_col, usa
             items = items[items.apply(compatibility_func, axis=1)]
         if items.empty: return None
         
+        # Strategi part pendukung harus mengikuti arah harga bundelnya
         if strategy_label == "Best Value Selection":
             return items.sort_values(by=['Web', branch_col], ascending=[True, False]).iloc[0]
         elif strategy_label == "Elite Enthusiast":
             return items.sort_values(by=['Web', branch_col], ascending=[False, False]).iloc[0]
-        else: # Core Performance / Default
+        else: # Core Performance / Tengah -> Gunakan stok tertinggi sebagai benchmark
             return items.sort_values(by=[branch_col, 'Web'], ascending=[False, True]).iloc[0]
 
     # Perakitan
@@ -300,6 +302,7 @@ def generate_market_bundles(df, branch_col, usage_cat, p_min, p_max):
             if found_for_strat >= 3: break
             
             res = assemble_single_bundle(available_df, procs.iloc[i], strat['label'], branch_col, usage_cat)
+            # Filter budget ada di sini
             if res and p_min <= res['total'] <= p_max:
                 results.append({
                     "strategy": strat['label'],
@@ -330,24 +333,35 @@ if uploaded_file:
     b_col = BRANCH_MAP[sel_branch]
     u_cat = st.sidebar.radio("Kategori Kebutuhan:", ["Office", "Gaming Standard / Design 2D", "Gaming Advanced / Design 3D"])
 
-    # --- HITUNG RANGE HARGA NYATA (DARI PAKET TERURAH) ---
+    # --- PERHITUNGAN HARGA NYATA UNTUK SIDEBAR ---
     valid_data = data[(data[u_cat] == True) & (data[b_col] > 0)]
     if not valid_data.empty:
-        # Cari paket termurah & termahal nyata (bukan teoritis)
-        procs_for_range = valid_data[valid_data['Kategori'] == 'Processor'].sort_values('Web')
+        # Loop semua prosesor yang valid untuk menemukan harga paket terendah & tertinggi yang SEBENARNYA
+        procs_valid = valid_data[valid_data['Kategori'] == 'Processor'].sort_values('Web')
         
-        # Test Paket Termurah Nyata
-        min_bundle = assemble_single_bundle(valid_data, procs_for_range.iloc[0], "Best Value Selection", b_col, u_cat)
-        # Test Paket Termahal Nyata
-        max_bundle = assemble_single_bundle(valid_data, procs_for_range.iloc[-1], "Elite Enthusiast", b_col, u_cat)
+        all_possible_totals = []
+        # Cek sampel prosesor dari bawah, tengah, dan atas untuk estimasi range yang cepat
+        test_indices = [0, len(procs_valid)//2, -1] if len(procs_valid) > 2 else range(len(procs_valid))
         
-        # Fallback jika perakitan gagal
-        calc_min = min_bundle['total'] if min_bundle else valid_data.groupby('Kategori')['Web'].min().sum()
-        calc_max = max_bundle['total'] if max_bundle else valid_data.groupby('Kategori')['Web'].max().sum()
+        # Cari bundle termurah dari prosesor termurah
+        low_res = assemble_single_bundle(valid_data, procs_valid.iloc[0], "Best Value Selection", b_col, u_cat)
+        if low_res: all_possible_totals.append(low_res['total'])
+        
+        # Cari bundle termahal dari prosesor termahal
+        high_res = assemble_single_bundle(valid_data, procs_valid.iloc[-1], "Elite Enthusiast", b_col, u_cat)
+        if high_res: all_possible_totals.append(high_res['total'])
+
+        if all_possible_totals:
+            calc_min = min(all_possible_totals)
+            calc_max = max(all_possible_totals)
+        else:
+            # Fallback jika perakitan virtual gagal
+            calc_min = valid_data.groupby('Kategori')['Web'].min().sum()
+            calc_max = valid_data.groupby('Kategori')['Web'].max().sum()
         
         st.sidebar.markdown("---")
         st.sidebar.subheader("💰 Tentukan Budget")
-        st.sidebar.caption(f"Estimasi {u_cat}: Rp {calc_min:,.0f} - Rp {calc_max:,.0f}")
+        st.sidebar.caption(f"Range Paket {u_cat}: Rp {calc_min:,.0f} - Rp {calc_max:,.0f}")
         p_min = st.sidebar.number_input("Budget Minimum (Rp)", value=float(calc_min), step=100000.0)
         p_max = st.sidebar.number_input("Budget Maksimum (Rp)", value=float(calc_max), step=100000.0)
     else:
@@ -372,7 +386,7 @@ if uploaded_file:
                                 <div>
                                     <span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
                                     <div class="bundle-title">Paket {u_cat} - {res['name']}</div>
-                                    <div class="part-count-text">📦 {len(res['parts'])} Komponen Termasuk</div>
+                                    <div class="part-count-text">📦 {len(res['parts'])} Komponen Included</div>
                                     <div class="price-text">Rp {res['total']:,.0f}</div>
                                 </div>
                             </div>
