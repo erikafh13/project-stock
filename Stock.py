@@ -754,9 +754,11 @@ elif page == "Hasil Analisa Stock":
                     total_agg = final_result_display.groupby(keys).agg(
                         All_Stock=('Stock Cabang', 'sum'), 
                         All_SO=('SO WMA', 'sum'),
-                        All_Add_Stock=('Add Stock', 'sum'),
                         All_Suggested_PO=('Suggested PO', 'sum')
                     ).reset_index()
+
+                    # Hitung ulang All_Add_Stock
+                    total_agg['All_Add_Stock'] = total_agg['All_SO'] - total_agg['All_Stock']
 
                     # Pastikan tidak ada spasi aneh
                     final_result_display.columns = final_result_display.columns.str.strip()
@@ -1126,3 +1128,4 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
