@@ -754,7 +754,6 @@ elif page == "Hasil Analisa Stock":
                     total_agg = final_result_display.groupby(keys).agg(
                         All_Stock=('Stock Cabang', 'sum'), 
                         All_SO=('SO WMA', 'sum'),
-                        All_Suggested_PO=('Suggested PO', 'sum')
                     ).reset_index()
 
                     # Hitung ulang All_Add_Stock
@@ -789,7 +788,7 @@ elif page == "Hasil Analisa Stock":
                     pivot_result = pd.merge(pivot_result, total_agg, on=keys, how='left')
                     pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All']], on=keys, how='left')
                     
-                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Suggested_PO', 'All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
+                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
                     df_to_style = pivot_result[final_display_cols].copy()
@@ -1128,4 +1127,5 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
