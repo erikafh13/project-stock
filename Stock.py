@@ -750,14 +750,15 @@ elif page == "Hasil Analisa Stock":
                     )
                     ordered_city_cols = [f"{city}_{metric}" for city in cities for metric in metric_order]
                     existing_ordered_cols = [col for col in ordered_city_cols if col in pivot_result.columns]
-                    
-                    total_agg = final_result_display.groupby(keys).agg(
+
+                    total_agg = (final_result_display.groupby(keys).agg(
                         All_Stock=('Stock Cabang', 'sum'), 
                         All_SO=('SO WMA', 'sum'),
-                    ).reset_index()
+                        All_Suggested_PO=('Suggested PO', 'sum')
+                    ).assign(
+                        All_Add_Stock=lambda x: (x['All_SO'] - x['All_Stock']).clip(lower=0)
+                    ).reset_index())
 
-                    # Hitung ulang All_Add_Stock
-                    total_agg['All_Add_Stock'] = total_agg['All_SO'] - total_agg['All_Stock']
 
                     # Pastikan tidak ada spasi aneh
                     final_result_display.columns = final_result_display.columns.str.strip()
@@ -1127,5 +1128,6 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
+
 
 
