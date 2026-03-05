@@ -236,6 +236,14 @@ def classify_abc_log_benchmark(df_grouped, metric_col):
 
     return df
 
+# Helper Multiplier (Didefinisikan di luar agar bisa dipakai di mana saja)
+def get_days_multiplier(kategori):                    
+    days_map = {
+        'A': 1, 'B': 1, 'C': 0.5, 
+        'D': 0.3, 'E': 0.25, 'F': 0.0
+    }
+    return days_map.get(kategori, 1.0)
+
 # =====================================================================================
 # 			 			 	 	 ROUTING HALAMAN
 # =====================================================================================
@@ -254,6 +262,7 @@ if page == "Input Data":
     if st.button("Muat / Muat Ulang Data Penjualan"):
         if penjualan_files_list:
             with st.spinner("Menggabungkan semua file penjualan..."):
+                # Use list comprehension with download_and_read which now has retries
                 dfs = []
                 for f in penjualan_files_list:
                     df_temp = download_and_read(f['id'], f['name'])
@@ -532,13 +541,6 @@ elif page == "Hasil Analisa Stock":
                 # [UPDATE] Hitung Min Stock (Requirement: Jika F maka Min Stock 0)
                 # ==============================================================================
                 
-                def get_days_multiplier(kategori):                    
-                    days_map = {
-                        'A': 1, 'B': 1, 'C': 0.5, 
-                        'D': 0.3, 'E': 0.25, 'F': 0.0
-                    }
-                    return days_map.get(kategori, 1.0)
-
                 def calculate_min_stock_days_only(row):
                     wma = row['SO WMA']
                     cat = row.get('Kategori ABC (Log-Benchmark - WMA)', 'E')
@@ -750,15 +752,12 @@ elif page == "Hasil Analisa Stock":
                     )
                     ordered_city_cols = [f"{city}_{metric}" for city in cities for metric in metric_order]
                     existing_ordered_cols = [col for col in ordered_city_cols if col in pivot_result.columns]
-
-                    total_agg = (final_result_display.groupby(keys).agg(
+                    
+                    total_agg = final_result_display.groupby(keys).agg(
                         All_Stock=('Stock Cabang', 'sum'), 
                         All_SO=('SO WMA', 'sum'),
                         All_Suggested_PO=('Suggested PO', 'sum')
-                    ).assign(
-                        All_Add_Stock=lambda x: (x['All_SO'] - x['All_Stock']).clip(lower=0)
-                    ).reset_index())
-
+                    ).reset_index()
 
                     # Pastikan tidak ada spasi aneh
                     final_result_display.columns = final_result_display.columns.str.strip()
@@ -784,12 +783,33 @@ elif page == "Hasil Analisa Stock":
                         'Kategori ABC (Log-Benchmark - Total Kuantitas)': 'All_Kategori ABC All'
                     }, inplace=True)
                     
+                    # --- [FITUR DIPERBARUI] Rumus All Add Stock menggunakan Multiplier ---
+                    # 1. Merge kategori ke total_agg dulu agar bisa akses multiplier
+                    total_agg = pd.merge(total_agg, all_classified[keys + ['All_Kategori ABC All']], on=keys, how='left')
+                    
+                    # 2. Hitung All_Min_Stock gabungan
+                    def calc_all_add_stock(row):
+                        so_all = row['All_SO']
+                        cat_all = row['All_Kategori ABC All']
+                        stock_all = row['All_Stock']
+                        
+                        if cat_all == 'F':
+                            return 0
+                        
+                        mult = get_days_multiplier(cat_all)
+                        min_stock_all = math.ceil(so_all * mult)
+                        return max(0, min_stock_all - stock_all)
+                    
+                    total_agg['All_Add_Stock'] = total_agg.apply(calc_all_add_stock, axis=1)
+
                     total_agg['All_Restock 1 Bulan'] = np.where(total_agg['All_Stock'] < total_agg['All_SO'], 'PO', 'NO')
                     
                     pivot_result = pd.merge(pivot_result, total_agg, on=keys, how='left')
-                    pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All']], on=keys, how='left')
+                    # Merge kolom DNA ALL sisanya ke tabel utama
+                    pivot_result = pd.merge(pivot_result, all_classified[keys + ['All_Log', 'All_Avg Log', 'All_Ratio']], on=keys, how='left')
                     
-                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
+                    # Daftarkan kolom ALL di summary
+                    final_summary_cols = ['All_Stock', 'All_SO', 'All_Add_Stock', 'All_Suggested_PO', 'All_Log', 'All_Avg Log', 'All_Ratio', 'All_Kategori ABC All', 'All_Restock 1 Bulan']
                     final_display_cols = keys + existing_ordered_cols + final_summary_cols
                     
                     df_to_style = pivot_result[final_display_cols].copy()
@@ -1128,6 +1148,3 @@ elif page == "Hasil Analisa ABC":
 elif page == "Hasil Analisis Margin":
     st.title("💰 Hasil Analisis Margin (Placeholder)")
     st.info("Halaman ini adalah placeholder untuk analisis margin yang akan dikembangkan selanjutnya.")
-
-
-
