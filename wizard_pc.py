@@ -574,7 +574,7 @@ if uploaded_file:
                                 <div>
                                     <span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
                                     <div class="bundle-title">Paket {u_cat} #{idx+1}</div>
-                                    <div class="part-count-text">📦 len(res['parts']) + len(res.get("missing", []))} Komponen</div>
+                                    <div class="part-count-text">📦 {len(res['parts']) + len(res.get("missing", []))} Komponen</div>
                                     <div class="price-text">Rp {res['total']:,.0f}</div>
                                     <div class="stock-info">Stok Utama: {res['parts']['Processor'][b_col]:.0f} unit</div>
                                     {missing_text}
