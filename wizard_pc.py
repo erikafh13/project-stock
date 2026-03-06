@@ -295,7 +295,7 @@ def process_data(df):
 
             # Intel B series >= 2 juta
             if series in ['B660','B760','B860'] and price >= 2000000:
-                df.at[idx,'Gaming Standard'] = True
+                df.at[idx,'Gaming Advanced'] = True
 
             # Intel Z series
             if series in ['Z790','Z890']:
@@ -303,7 +303,7 @@ def process_data(df):
 
             # AMD B series
             if series in ['B450','B550','B650','B840','B850']:
-                df.at[idx,'Gaming Standard'] = True
+                df.at[idx,'Gaming Advanced'] = True
 
             # AMD X series
             if series in ['X870']:
@@ -373,9 +373,9 @@ def process_data(df):
                 df.at[idx, 'Gaming Standard'] = True
         
             if price > 500000:
-                df.at[idx, 'Gaming Advanced'] = TrueTrue
+                df.at[idx, 'Gaming Advanced'] = True
             
-            return df
+        return df
 
 # --- 4. ENGINE REKOMENDASI (SINKRONISASI MAPPING & BUNDLING) ---
 
@@ -496,8 +496,13 @@ uploaded_file = st.file_uploader("Upload Data Portal (CSV/XLSX)", type=["csv", "
 
 if uploaded_file:
     raw_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
+
     data = process_data(raw_df)
-    
+
+    # DEBUG SEMENTARA
+    st.write("Jumlah kategori:", data['Kategori'].value_counts())
+    st.write("Mapping kategori penggunaan:")
+    st.write(data[['Kategori','Office','Gaming Standard','Gaming Advanced']].head(50))
     st.sidebar.header("⚙️ Konfigurasi")
     sel_branch = st.sidebar.selectbox("Pilih Cabang:", list(BRANCH_MAP.keys()))
     b_col = BRANCH_MAP[sel_branch]
