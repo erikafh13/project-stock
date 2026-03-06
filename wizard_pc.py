@@ -84,7 +84,7 @@ ASSEMBLY_FEES = {
 PRICE_THRESHOLDS = {
     "Office": {"max": 10000000},
     "Gaming Standard": {"min": 10000000, "max": 20000000},
-    "Gaming Advanced": {"min": 15000000}
+    "Gaming Advanced": {"min": 0}
 }
 
 DISPLAY_ORDER = ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'VGA', 'Casing PC', 'Power Supply', 'CPU Cooler']
