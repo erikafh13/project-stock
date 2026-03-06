@@ -250,37 +250,57 @@ def process_data(df):
         # 2. Rules Motherboard
         elif cat == 'Motherboard':
 
-            series_list = ['H410','H510','H610','H810',
-                           'B660','B760','B860',
-                           'Z790','Z890',
-                           'A520','A620',
-                           'B450','B550','B650','B840','B850',
-                           'X870']
+            series_list = [
+                'H410','H510','H610','H810',
+                'B660','B760','B860',
+                'Z790','Z890',
+                'A520','A620',
+                'B450','B550','B650','B840','B850',
+                'X870'
+            ]
 
+            # Deteksi chipset
             for s in series_list:
                 if s in name:
-                    df.at[idx, 'Mobo_Series'] = s
+                    df.at[idx,'Mobo_Series'] = s
                     break
 
-            df.at[idx, 'DDR_Type'] = get_ddr_type(name)
+            df.at[idx,'DDR_Type'] = get_ddr_type(name)
 
-            series = df.at[idx, 'Mobo_Series']
+            series = df.at[idx,'Mobo_Series']
 
-            # ===== OFFICE =====
+            # ======================
+            # OFFICE
+            # ======================
             if series in ['H410','H510','H610','H810','A520','A620']:
                 df.at[idx,'Office'] = True
 
-            # ===== GAMING STANDARD =====
-            if series in ['B660','B760','B860','B450','B550','B650','B840','B850'] and price < 2000000:
+
+            # ======================
+            # GAMING STANDARD
+            # ======================
+
+            # Intel B series >= 2 juta
+            if series in ['B660','B760','B860'] and price >= 2000000:
                 df.at[idx,'Gaming Standard'] = True
 
-            # ===== GAMING ADVANCED =====
-            if series in ['Z790','Z890','X870']:
+            # AMD B series
+            if series in ['B450','B550','B650','B840','B850']:
+                df.at[idx,'Gaming Standard'] = True
+
+
+            # ======================
+            # GAMING ADVANCED
+            # ======================
+
+            # Intel Z series
+            if series in ['Z790','Z890']:
                 df.at[idx,'Gaming Advanced'] = True
 
-            if series in ['B660','B760','B860','B650','B840','B850'] and price >= 2000000:
-                df.at[idx,'GamingAdvanced'] = True
-
+            # AMD X series
+            if series in ['X870']:
+                df.at[idx,'Gaming Advanced'] = True
+        
         # 3. Rules RAM (Kecualikan SODIMM)
         elif cat == 'Memory RAM':
             if 'SODIMM' in name: continue 
