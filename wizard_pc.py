@@ -281,7 +281,7 @@ def process_data(df):
             # ======================
 
             # Intel B series >= 2 juta
-            if series in ['B660','B760','B860'] and price >= 2000000:
+            if series in ['B660','B760','B860'] and price < 2000000:
                 df.at[idx,'Gaming Standard'] = True
 
             # AMD B series
@@ -293,9 +293,17 @@ def process_data(df):
             # GAMING ADVANCED
             # ======================
 
+            # Intel B series >= 2 juta
+            if series in ['B660','B760','B860'] and price >= 2000000:
+                df.at[idx,'Gaming Standard'] = True
+
             # Intel Z series
             if series in ['Z790','Z890']:
                 df.at[idx,'Gaming Advanced'] = True
+
+            # AMD B series
+            if series in ['B450','B550','B650','B840','B850']:
+                df.at[idx,'Gaming Standard'] = True
 
             # AMD X series
             if series in ['X870']:
@@ -317,12 +325,25 @@ def process_data(df):
             if 'WDS120G2G0B' in name: continue 
             df.loc[idx, ['Office', 'Gaming Standard']] = True
             # Gaming Advanced wajib NVMe
-            if 'M.2 NVME' in name: df.at[idx, 'Gaming Advanced'] = True
+            if 'M.2 NVMe' in name: df.at[idx, 'Gaming Advanced'] = True
 
         # 5. Rules VGA
         elif cat == 'VGA':
-            if any(x in name for x in ['GT710', 'GT730']): df.at[idx, 'Office'] = True
-            df.loc[idx, ['Gaming Standard', 'Gaming Advanced']] = True
+
+            name = name.upper()
+
+            office_vga = ['GT710', 'GT730']
+            gaming_standard_vga = ['GT1030', 'GTX1650', 'RTX3050', 'RTX3060', 'RTX5050', 'RTX4060']
+            gaming_advanced_vga = ['RTX5060', 'RTX5060TI', 'RTX5070', 'RTX5070TI', 'RTX5080', 'RTX5090']
+
+            if any(x in name for x in office_vga):
+                df.at[idx, 'Office'] = True
+
+            elif any(x in name for x in gaming_standard_vga):
+                df.at[idx, 'Gaming Standard'] = True
+
+            elif any(x in name for x in gaming_advanced_vga):
+                df.at[idx, 'Gaming Advanced'] = True
 
         # 6. Rules Casing PC
         elif cat == 'Casing PC':
