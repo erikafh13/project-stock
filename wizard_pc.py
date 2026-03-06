@@ -80,7 +80,7 @@ ASSEMBLY_FEES = {
     "Gaming Advanced": 200000
 }
 
-# Mapping rentang harga paket final
+# Threshold rentang harga untuk filtering bundling final
 PRICE_THRESHOLDS = {
     "Office": {"max": 10000000},
     "Gaming Standard": {"min": 10000000, "max": 20000000},
@@ -134,7 +134,7 @@ def process_data(df):
         df.get('Stock Y - SBY', 0).fillna(0)
     )
     
-    # FILTER AWAL: Harga > 1 dan ada stok
+    # FILTER AWAL: Buang harga 0, 1 dan barang tanpa stok
     df = df[df['Web'] > 1].copy()
     df = df[df['Stock Total'] > 0].copy()
     
@@ -164,7 +164,7 @@ def process_data(df):
         price = row['Web']
         cat = row['Kategori']
 
-        # 1. PROCESSOR Rules
+        # 1. Rules Processor
         if cat == 'Processor':
             is_f = bool(re.search(r'\d+[0-9]F\b', name))
             if is_f: df.at[idx, 'NeedVGA'] = 1
@@ -172,14 +172,15 @@ def process_data(df):
             info = get_cpu_info(name)
             df.at[idx, 'CPU_Gen'], df.at[idx, 'CPU_Socket'] = info['gen'], info['socket']
             
-            # Labeling awal
+            # Labeling teknis awal
             if 'I3' in name or 'I5' in name:
                 df.at[idx, 'Office'] = True
                 df.at[idx, 'Gaming Standard'] = True
             if any(x in name for x in ['I5', 'I7', 'I9', 'ULTRA', 'RYZEN']):
+                # Khusus Gaming Advanced wajib Seri F
                 if is_f: df.at[idx, 'Gaming Advanced'] = True
 
-        # 2. MOBO Rules
+        # 2. Rules Motherboard
         elif cat == 'Motherboard':
             series_list = ['H410', 'H510', 'H610', 'H810', 'B660', 'B760', 'B860', 'Z790', 'Z890', 
                            'A520', 'A620', 'B450', 'B550', 'B650', 'B840', 'B850', 'X870']
@@ -190,7 +191,7 @@ def process_data(df):
             df.at[idx, 'DDR_Type'] = get_ddr_type(name)
             df.loc[idx, ['Office', 'Gaming Standard', 'Gaming Advanced']] = True
 
-        # 3. RAM Rules (Kecualikan SODIMM)
+        # 3. Rules RAM (Kecualikan SODIMM)
         elif cat == 'Memory RAM':
             if 'SODIMM' in name: continue 
             df.at[idx, 'DDR_Type'] = get_ddr_type(name)
@@ -201,42 +202,44 @@ def process_data(df):
                 if 16 <= sz <= 32: df.at[idx, 'Gaming Standard'] = True
                 if 32 <= sz <= 64: df.at[idx, 'Gaming Advanced'] = True
 
-        # 4. SSD Rules (Kecualikan WDS120G2G0B)
+        # 4. Rules SSD (Kecualikan WDS120G2G0B)
         elif cat == 'SSD Internal':
             if 'WDS120G2G0B' in name: continue 
             df.loc[idx, ['Office', 'Gaming Standard']] = True
+            # Gaming Advanced wajib NVMe
             if 'M.2 NVME' in name: df.at[idx, 'Gaming Advanced'] = True
 
-        # 5. VGA Rules
+        # 5. Rules VGA
         elif cat == 'VGA':
             if any(x in name for x in ['GT710', 'GT730']): df.at[idx, 'Office'] = True
             df.loc[idx, ['Gaming Standard', 'Gaming Advanced']] = True
 
-        # 6. CASING PC Rules (Revisi Firman)
+        # 6. Rules Casing PC
         elif cat == 'Casing PC':
             if 'ARMAGGEDDON' in name: continue
-            # Office
+            # Office: nama mengandung keyword khusus
             if any(x in name for x in ['PSU', 'OFFICE', 'VALCAS']):
                 df.at[idx, 'Office'] = True
                 if 'PSU' in name or 'VALCAS' in name: df.at[idx, 'HasPSU'] = 1
-            # Standard & Advanced
+            # Standard & Advanced berdasarkan harga
             if 300000 <= price <= 600000: df.at[idx, 'Gaming Standard'] = True
             if price > 600000: df.at[idx, 'Gaming Advanced'] = True
 
-        # 7. PSU Rules (Revisi Firman)
+        # 7. Rules PSU
         elif cat == 'Power Supply':
             if price < 500000: df.at[idx, 'Office'] = True
             if price >= 500000: df.at[idx, 'Gaming Standard'] = True
+            # Advanced wajib berlabel efisiensi
             if any(x in name for x in ['BRONZE', 'TITANIUM', 'GOLD', 'PLATINUM', 'SILVER']):
                 df.at[idx, 'Gaming Advanced'] = True
 
-        # 8. COOLER Rules
+        # 8. Rules Cooler
         elif cat == 'CPU Cooler':
             df.loc[idx, ['Office', 'Gaming Standard', 'Gaming Advanced']] = True
             
     return df
 
-# --- 4. ENGINE REKOMENDASI (STRATEGI REVISI) ---
+# --- 4. ENGINE REKOMENDASI (SINKRONISASI MAPPING & BUNDLING) ---
 
 def pick_component(items, strategy, branch_col):
     if items.empty: return None
@@ -249,6 +252,7 @@ def pick_component(items, strategy, branch_col):
     
     elif strategy == "Smart Pick":
         min_p = items['Web'].min()
+        # Ambil range +100rb dari termurah, lalu cari stok terbanyak
         pool = items[items['Web'] <= (min_p + 100000)]
         return pool.sort_values(by=[branch_col, 'Web'], ascending=[False, True]).iloc[0]
     
@@ -259,45 +263,39 @@ def assemble_bundle(available_df, pick_p, strategy, branch_col, usage_cat):
     
     def get_part(category, filter_func=None):
         items = available_df[available_df['Kategori'] == category]
-        # Pastikan komponen juga mendukung kategori penggunaan tersebut
+        # Pastikan komponen pendukung sesuai dengan kategori penggunaan yang dipilih
         items = items[items[usage_cat] == True]
         if filter_func:
             items = items[items.apply(filter_func, axis=1)]
         return pick_component(items, strategy, branch_col)
 
-    # 1. Motherboard
+    # Perakitan Berurutan
     mobo = get_part('Motherboard', lambda m: is_compatible(pick_p, m))
     if mobo is None: return None
     bundle['Motherboard'] = mobo; total += mobo['Web']
     
-    # 2. RAM
     ram = get_part('Memory RAM', lambda r: r.get('DDR_Type') == mobo.get('DDR_Type'))
     if ram is None: return None
     bundle['Memory RAM'] = ram; total += ram['Web']
     
-    # 3. SSD
     ssd = get_part('SSD Internal')
     if ssd is None: return None
     bundle['SSD Internal'] = ssd; total += ssd['Web']
 
-    # 4. VGA
     if pick_p['NeedVGA'] == 1:
         vga = get_part('VGA')
         if vga is None: return None
         bundle['VGA'] = vga; total += vga['Web']
 
-    # 5. Casing
     case = get_part('Casing PC')
     if case is None: return None
     bundle['Casing PC'] = case; total += case['Web']
 
-    # 6. PSU
     if bundle['Casing PC'].get('HasPSU', 0) == 0:
         psu = get_part('Power Supply')
         if psu is None: return None
         bundle['Power Supply'] = psu; total += psu['Web']
 
-    # 7. Cooler
     if pick_p['NeedCooler'] == 1:
         cooler = get_part('CPU Cooler')
         if cooler is None: return None
@@ -315,32 +313,29 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
     ]
     
     results = []
-    # Threshold global kategori
+    # Batasan kategori harga
     cat_min = PRICE_THRESHOLDS[usage_cat].get('min', 0)
     cat_max = PRICE_THRESHOLDS[usage_cat].get('max', 1000000000)
 
     for strat in strategies:
-        # Cari Processor yang valid untuk kategori ini
+        # Ambil Processor yang lolos mapping kategori ini
         procs = available_df[(available_df['Kategori'] == 'Processor') & (available_df[usage_cat] == True)]
         
-        # Sort procs sesuai strategi untuk variasi processor
+        # Urutan pencarian processor disesuaikan strategi agar peluang variasi tinggi
         if strat['label'] == "Harga Termurah": sorted_procs = procs.sort_values('Web')
-        elif strat['label'] == "Smart Pick":
+        elif strat['label'] == "Smart Pick": 
             min_p = procs['Web'].min()
-            sorted_procs = procs[procs['Web'] <= (min_p + 100000)].sort_values(branch_col, ascending=False)
-            # Gabungkan dengan sisa processor jika kurang dari 3
-            if len(sorted_procs) < 3:
-                others = procs[~procs.index.isin(sorted_procs.index)].sort_values('Web')
-                sorted_procs = pd.concat([sorted_procs, others])
+            sorted_procs = procs[procs['Web'] <= (min_p + 200000)].sort_values(branch_col, ascending=False)
+            if len(sorted_procs) < 5: sorted_procs = procs.sort_values(branch_col, ascending=False)
         else: sorted_procs = procs.sort_values(branch_col, ascending=False)
         
         found_for_strat = 0
         for i in range(len(sorted_procs)):
-            if found_for_strat >= 3: break
+            if found_for_strat >= 3: break # Ambil 3 paket per strategi
             
             res = assemble_bundle(available_df, sorted_procs.iloc[i], strat['label'], branch_col, usage_cat)
             if res:
-                # Cek apakah masuk dalam Threshold Kategori DAN Filter User
+                # Filter budget kumulatif (Threshold + Input User)
                 if (cat_min <= res['total'] <= cat_max) and (p_min_user <= res['total'] <= p_max_user):
                     results.append({
                         "strategy": strat['label'],
@@ -359,7 +354,7 @@ st.title("🛒 PC Wizard Pro")
 if 'view' not in st.session_state: st.session_state.view = 'main'
 if 'selected_bundle' not in st.session_state: st.session_state.selected_bundle = None
 
-uploaded_file = st.file_uploader("Upload Data Portal", type=["csv", "xlsx"])
+uploaded_file = st.file_uploader("Upload Data Portal (CSV/XLSX)", type=["csv", "xlsx"])
 
 if uploaded_file:
     raw_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
@@ -369,13 +364,12 @@ if uploaded_file:
     sel_branch = st.sidebar.selectbox("Pilih Cabang:", list(BRANCH_MAP.keys()))
     b_col = BRANCH_MAP[sel_branch]
     
-    # REVISI: Filter Penggunaan Tunggal
     u_cat = st.sidebar.radio("Kategori Penggunaan:", ["Office", "Gaming Standard", "Gaming Advanced"])
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("💰 Filter Budget Manual")
-    p_min_user = st.sidebar.number_input("Budget Minimum (Rp)", value=0.0, step=500000.0)
-    p_max_user = st.sidebar.number_input("Budget Maksimum (Rp)", value=100000000.0, step=500000.0)
+    st.sidebar.subheader("💰 Filter Budget")
+    p_min_user = st.sidebar.number_input("Min (Rp)", value=0.0, step=500000.0)
+    p_max_user = st.sidebar.number_input("Max (Rp)", value=100000000.0, step=500000.0)
 
     if st.session_state.view == 'main':
         st.info(f"📍 Menampilkan 9 Bundling Terbaik untuk **{u_cat}** di {sel_branch}")
@@ -383,9 +377,9 @@ if uploaded_file:
         all_res = generate_9_bundles(data, b_col, u_cat, p_min_user, p_max_user)
         
         if not all_res:
-            st.warning(f"Tidak ada paket {u_cat} yang ditemukan sesuai budget atau ketersediaan stok.")
+            st.warning(f"Tidak ada paket {u_cat} yang ditemukan. Coba luaskan filter budget atau cek stok cabang lain.")
         else:
-            # Grid 3 kolom
+            # Grid 3 kolom (Marketplace style)
             for i in range(0, len(all_res), 3):
                 cols = st.columns(3)
                 for j in range(3):
@@ -398,9 +392,9 @@ if uploaded_file:
                                 <div>
                                     <span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
                                     <div class="bundle-title">Paket {u_cat} #{idx+1}</div>
-                                    <div class="part-count-text">📦 {len(res['parts'])} Komponen Included</div>
+                                    <div class="part-count-text">📦 {len(res['parts'])} Komponen</div>
                                     <div class="price-text">Rp {res['total']:,.0f}</div>
-                                    <div class="stock-info">Stok Processor: {res['parts']['Processor'][b_col]:.0f} unit</div>
+                                    <div class="stock-info">Stok Utama: {res['parts']['Processor'][b_col]:.0f} unit</div>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -429,9 +423,8 @@ if uploaded_file:
                 if cat == 'CPU Cooler' and cur_p is not None and cur_p['NeedCooler'] == 1: is_mandatory = True
                 if cat == 'Power Supply' and upd.get('Casing PC', {}).get('HasPSU', 0) == 0: is_mandatory = True
 
-                cat_opts = available_detail[available_detail['Kategori'] == cat]
-                # Filter agar pilihan pengganti tetap sesuai kategori penggunaan
-                cat_opts = cat_opts[cat_opts[u_cat] == True]
+                # Filter opsi pengganti agar tetap dalam kategori penggunaan yang sama
+                cat_opts = available_detail[(available_detail['Kategori'] == cat) & (available_detail[u_cat] == True)]
                 
                 if cat == 'Motherboard' and cur_p is not None:
                     cat_opts = cat_opts[cat_opts.apply(lambda m: is_compatible(cur_p, m), axis=1)]
@@ -444,11 +437,12 @@ if uploaded_file:
                 if cat in upd:
                     item = upd[cat]
                     with st.expander(f"📦 **{cat}**: {item['Nama Accurate']}", expanded=(cat == 'Processor')):
-                        st.markdown(f"<span class='stock-info'>Stok Cabang: {item[b_col]:.0f} unit</span>", unsafe_allow_html=True)
+                        st.markdown(f"<span class='stock-info'>Stok: {item[b_col]:.0f} unit</span>", unsafe_allow_html=True)
                         s_o = cat_opts.sort_values('Web')
                         lbls = s_o['Nama Accurate'] + " (Rp " + s_o['Web'].map('{:,.0f}'.format) + " | Stok: " + s_o[b_col].map('{:.0f}'.format) + ")"
                         try: ix = s_o['Nama Accurate'].tolist().index(item['Nama Accurate'])
                         except: ix = 0
+                        
                         new_pick = st.selectbox(f"Ubah {cat}:", lbls, index=ix, key=f"sel_{cat}")
                         new_it = s_o[s_o['Nama Accurate'] == new_pick.split(" (Rp ")[0]].iloc[0]
                         if new_it['Nama Accurate'] != item['Nama Accurate']:
@@ -475,4 +469,4 @@ if uploaded_file:
             st.subheader(f"Total: Rp {grand_total:,.0f}")
             if st.button("✅ Konfirmasi", use_container_width=True, type="primary"): st.balloons()
 else:
-    st.info("👋 Silakan upload file Data Portal (CSV/Excel) untuk memulai sistem bundling pintar.")
+    st.info("👋 Silakan upload file Data Portal untuk memulai sistem bundling pintar.")
