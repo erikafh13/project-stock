@@ -94,16 +94,44 @@ DISPLAY_ORDER = ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'VGA'
 def get_cpu_info(name):
     name = name.upper()
     info = {"gen": None, "socket": None}
-    intel_match = re.search(r'I[3579]-(\d{1,2})', name)
+
+    # ===== INTEL CORE =====
+    intel_match = re.search(r'I[3579]-(\d{4,5})', name)
     if intel_match:
-        info["gen"] = int(intel_match.group(1))
+        num = intel_match.group(1)
+
+        # menentukan generasi
+        if len(num) == 4:
+            gen = int(num[0])
+        else:
+            gen = int(num[:2])
+
+        info["gen"] = gen
+
+        # mapping socket intel
+        if gen >= 12:
+            info["socket"] = "LGA1700"
+        elif gen >= 10:
+            info["socket"] = "LGA1200"
+        elif gen >= 8:
+            info["socket"] = "LGA1151"
+
+    # ===== INTEL ULTRA =====
     elif "ULTRA" in name:
         info["gen"] = "ULTRA"
-    if "RYZEN" in name:
-        if any(x in name for x in ["7000", "8000", "9000"]) or "AM5" in name:
-            info["socket"] = "AM5"
-        else:
-            info["socket"] = "AM4"
+        info["socket"] = "LGA1851"
+
+    # ===== AMD RYZEN =====
+    elif "RYZEN" in name:
+        ryzen_match = re.search(r'RYZEN\s[3579]\s(\d{4})', name)
+        if ryzen_match:
+            series = int(ryzen_match.group(1))
+
+            if series >= 7000:
+                info["socket"] = "AM5"
+            else:
+                info["socket"] = "AM4"
+
     return info
 
 def get_ddr_type(name):
@@ -113,16 +141,36 @@ def get_ddr_type(name):
     return None
 
 def is_compatible(cpu_row, mobo_row):
+
     gen = cpu_row['CPU_Gen']
     socket = cpu_row['CPU_Socket']
     series = mobo_row['Mobo_Series']
-    if gen == 10: return series in ['H410', 'H510']
-    if gen == 11: return series in ['H510']
-    if gen in [12, 13, 14]: return series in ['H610', 'B660', 'B760', 'Z790']
-    if gen == "ULTRA": return series in ['H810', 'B860', 'Z890']
-    if socket == "AM4": return series in ['A520', 'B450', 'B550']
-    if socket == "AM5": return series in ['A620', 'B650', 'B840', 'B850', 'X870']
-    return True
+
+    # ===== INTEL GEN 10 =====
+    if gen == 10:
+        return series in ['H410', 'H510']
+
+    # ===== INTEL GEN 11 =====
+    if gen == 11:
+        return series in ['H510']
+
+    # ===== INTEL GEN 12-14 =====
+    if gen in [12, 13, 14]:
+        return series in ['H610', 'B660', 'B760', 'Z790']
+
+    # ===== INTEL ULTRA =====
+    if gen == "ULTRA":
+        return series in ['H810', 'B860', 'Z890']
+
+    # ===== AMD AM4 =====
+    if socket == "AM4":
+        return series in ['A520', 'B450', 'B550']
+
+    # ===== AMD AM5 =====
+    if socket == "AM5":
+        return series in ['A620', 'B650', 'B840', 'B850', 'X870']
+
+    return False
 
 # --- 3. PUSAT LOGIKA PEMROSESAN DATA ---
 
@@ -166,19 +214,38 @@ def process_data(df):
 
         # 1. Rules Processor
         if cat == 'Processor':
-            is_f = bool(re.search(r'\d+[0-9]F\b', name))
-            if is_f: df.at[idx, 'NeedVGA'] = 1
-            if 'TRAY' in name or 'NO FAN' in name: df.at[idx, 'NeedCooler'] = 1
+            # Deteksi suffix F (case insensitive karena name sudah upper())
+            is_f = bool(re.search(r'\d+F\b', name))
+
+            # Metadata
+            if is_f:
+                df.at[idx, 'NeedVGA'] = 1
+
+            if 'TRAY' in name or 'NO FAN' in name:
+                df.at[idx, 'NeedCooler'] = 1
+
+            # Ambil info CPU
             info = get_cpu_info(name)
-            df.at[idx, 'CPU_Gen'], df.at[idx, 'CPU_Socket'] = info['gen'], info['socket']
-            
-            # Labeling teknis awal
+            df.at[idx, 'CPU_Gen'] = info['gen']
+            df.at[idx, 'CPU_Socket'] = info['socket']
+
+            # ===== OFFICE =====
             if 'I3' in name or 'I5' in name:
                 df.at[idx, 'Office'] = True
+
+            # ===== GAMING STANDARD =====
+            if ('I3' in name or 'I5' in name) and is_f:
                 df.at[idx, 'Gaming Standard'] = True
-            if any(x in name for x in ['I5', 'I7', 'I9', 'ULTRA', 'RYZEN']):
-                # Khusus Gaming Advanced wajib Seri F
-                if is_f: df.at[idx, 'Gaming Advanced'] = True
+
+            # ===== GAMING ADVANCED =====
+
+            # Intel i7 / i9 / Ultra wajib F
+            if any(x in name for x in ['I7', 'I9', 'ULTRA']) and is_f:
+                df.at[idx, 'Gaming Advanced'] = True
+
+            # AMD Ryzen 7 / 9
+            if 'RYZEN 7' in name or 'RYZEN 9' in name:
+                df.at[idx, 'Gaming Advanced'] = True
 
         # 2. Rules Motherboard
         elif cat == 'Motherboard':
