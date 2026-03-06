@@ -361,14 +361,21 @@ def process_data(df):
             if price < 500000: df.at[idx, 'Office'] = True
             if price >= 500000: df.at[idx, 'Gaming Standard'] = True
             # Advanced wajib berlabel efisiensi
-            if any(x in name for x in ['BRONZE', 'TITANIUM', 'GOLD', 'PLATINUM', 'SILVER']):
+            if any(x in name.lower() for x in ['bronze', 'titanium', 'gold', 'platinum', 'silver']):
                 df.at[idx, 'Gaming Advanced'] = True
 
         # 8. Rules Cooler
         elif cat == 'CPU Cooler':
-            df.loc[idx, ['Office', 'Gaming Standard', 'Gaming Advanced']] = True
+            if price < 300000:
+                df.at[idx, 'Office'] = True
+        
+            if 250000 <= price <= 1000000:
+                df.at[idx, 'Gaming Standard'] = True
+        
+            if price > 500000:
+                df.at[idx, 'Gaming Advanced'] = TrueTrue
             
-    return df
+            return df
 
 # --- 4. ENGINE REKOMENDASI (SINKRONISASI MAPPING & BUNDLING) ---
 
