@@ -375,7 +375,7 @@ def process_data(df):
             if price > 500000:
                 df.at[idx, 'Gaming Advanced'] = True
             
-        return df
+    return df
 
 # --- 4. ENGINE REKOMENDASI (SINKRONISASI MAPPING & BUNDLING) ---
 
