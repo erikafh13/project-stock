@@ -397,50 +397,85 @@ def pick_component(items, strategy, branch_col):
     return items.iloc[0]
 
 def assemble_bundle(available_df, pick_p, strategy, branch_col, usage_cat):
-    bundle, total = {'Processor': pick_p}, pick_p['Web']
-    
+
+    bundle = {'Processor': pick_p}
+    missing = []
+    total = pick_p['Web']
+
     def get_part(category, filter_func=None):
         items = available_df[available_df['Kategori'] == category]
-        # Pastikan komponen pendukung sesuai dengan kategori penggunaan yang dipilih
         items = items[items[usage_cat] == True]
+
         if filter_func:
             items = items[items.apply(filter_func, axis=1)]
+
         return pick_component(items, strategy, branch_col)
 
-    # Perakitan Berurutan
+    # Motherboard
     mobo = get_part('Motherboard', lambda m: is_compatible(pick_p, m))
-    if mobo is None: return None
-    bundle['Motherboard'] = mobo; total += mobo['Web']
-    
-    ram = get_part('Memory RAM', lambda r: r.get('DDR_Type') == mobo.get('DDR_Type'))
-    if ram is None: return None
-    bundle['Memory RAM'] = ram; total += ram['Web']
-    
-    ssd = get_part('SSD Internal')
-    if ssd is None: return None
-    bundle['SSD Internal'] = ssd; total += ssd['Web']
+    if mobo is not None:
+        bundle['Motherboard'] = mobo
+        total += mobo['Web']
+    else:
+        missing.append('Motherboard')
 
+    # RAM
+    ram = get_part('Memory RAM', lambda r: r.get('DDR_Type') == (mobo.get('DDR_Type') if mobo is not None else None))
+    if ram is not None:
+        bundle['Memory RAM'] = ram
+        total += ram['Web']
+    else:
+        missing.append('Memory RAM')
+
+    # SSD
+    ssd = get_part('SSD Internal')
+    if ssd is not None:
+        bundle['SSD Internal'] = ssd
+        total += ssd['Web']
+    else:
+        missing.append('SSD Internal')
+
+    # VGA
     if pick_p['NeedVGA'] == 1:
         vga = get_part('VGA')
-        if vga is None: return None
-        bundle['VGA'] = vga; total += vga['Web']
+        if vga is not None:
+            bundle['VGA'] = vga
+            total += vga['Web']
+        else:
+            missing.append('VGA')
 
+    # Case
     case = get_part('Casing PC')
-    if case is None: return None
-    bundle['Casing PC'] = case; total += case['Web']
+    if case is not None:
+        bundle['Casing PC'] = case
+        total += case['Web']
+    else:
+        missing.append('Casing PC')
 
-    if bundle['Casing PC'].get('HasPSU', 0) == 0:
+    # PSU
+    if case is not None and case.get('HasPSU',0) == 0:
         psu = get_part('Power Supply')
-        if psu is None: return None
-        bundle['Power Supply'] = psu; total += psu['Web']
+        if psu is not None:
+            bundle['Power Supply'] = psu
+            total += psu['Web']
+        else:
+            missing.append('Power Supply')
 
+    # Cooler
     if pick_p['NeedCooler'] == 1:
         cooler = get_part('CPU Cooler')
-        if cooler is None: return None
-        bundle['CPU Cooler'] = cooler; total += cooler['Web']
+        if cooler is not None:
+            bundle['CPU Cooler'] = cooler
+            total += cooler['Web']
+        else:
+            missing.append('CPU Cooler')
 
-    return {"parts": bundle, "total": total}
-
+    return {
+        "parts": bundle,
+        "missing": missing,
+        "total": total
+    }
+    
 def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
     available_df = df[df[branch_col] > 0].copy()
     
@@ -530,14 +565,19 @@ if uploaded_file:
                     if idx < len(all_res):
                         res = all_res[idx]
                         with cols[j]:
+                            missing_text = ""
+                            if res.get("missing"):
+                                missing_text = f"<div style='color:#e74c3c;font-size:11px;margin-top:6px;'>⚠ Missing: {', '.join(res['missing'])}</div>"
+
                             st.markdown(f"""
                             <div class="bundle-card">
                                 <div>
                                     <span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
                                     <div class="bundle-title">Paket {u_cat} #{idx+1}</div>
-                                    <div class="part-count-text">📦 {len(res['parts'])} Komponen</div>
+                                    <div class="part-count-text">📦 len(res['parts']) + len(res.get("missing", []))} Komponen</div>
                                     <div class="price-text">Rp {res['total']:,.0f}</div>
                                     <div class="stock-info">Stok Utama: {res['parts']['Processor'][b_col]:.0f} unit</div>
+                                    {missing_text}
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
