@@ -217,8 +217,8 @@ def process_data(df):
 
         elif cat == 'VGA':
             if any(x in name for x in ['GT710', 'GT730']): df.at[idx, 'Office'] = True
-            elif any(x in name for x in ['GT1030', 'GTX1650', 'RTX3050', 'RTX3060', 'RTX5050', 'RTX4060']): df.at[idx, 'Gaming Standard'] = True
-            elif any(x in name for x in ['3070', '3080', '3090', '4070', '4080', '4090', 'RTX50']): df.at[idx, 'Gaming Advanced'] = True
+            elif any(x in name for x in ['GT1030', 'GTX1650', 'RTX 3050', 'RTX 3060', 'RTX 5050', 'RTX 4060']): df.at[idx, 'Gaming Standard'] = True
+            elif any(x in name for x in ['RTX 50','RTX 60']): df.at[idx, 'Gaming Advanced'] = True
 
         elif cat == 'Casing PC':
             if 'ARMAGGEDDON' in name: continue
