@@ -147,6 +147,7 @@ def process_data(df):
     df.columns = df.columns.str.strip()
     df['Stock_SBY_Combined'] = (df.get('Stock A - ITC', 0).fillna(0) + df.get('Stock B', 0).fillna(0) + df.get('Stock Y - SBY', 0).fillna(0))
     df = df[df['Web'] > 1].copy()
+    # Membiarkan stock total >= 0 agar produk tanpa stok tetap terproses
     df = df[df['Stock Total'] >= 0].copy()
     df['Nama Accurate'] = df['Nama Accurate'].fillna('').str.strip()
     df['Kategori'] = df['Kategori'].fillna('').str.strip()
@@ -286,16 +287,16 @@ def assemble_bundle(available_df, pick_p, strategy, branch_col, usage_cat):
     return {"parts": bundle, "missing": missing, "total": total}
     
 def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
-    available_df = df[df[branch_col] > 0].copy()
+    # REVISI: Tidak memfilter stock > 0 di sini agar semua produk bisa masuk bundling
+    available_df = df.copy() 
     strategies = [{"label": "Stok Terbanyak", "class": "badge-stock"}, {"label": "Harga Termurah", "class": "badge-cheap"}, {"label": "Smart Pick", "class": "badge-smart"}]
     results = []
     cat_min, cat_max = PRICE_THRESHOLDS[usage_cat]['min'], PRICE_THRESHOLDS[usage_cat]['max']
 
     for strat in strategies:
         procs = available_df[(available_df['Kategori'] == 'Processor') & (available_df[usage_cat] == True)]
-        # REVISI 10: Satu produk bisa masuk ke > 1 card, sorting dibedakan per strategi
         if strat['label'] == "Harga Termurah": sorted_procs = procs.sort_values('Web')
-        elif strat['label'] == "Smart Pick": sorted_procs = procs.sample(frac=1) # Acak agar variasi tinggi
+        elif strat['label'] == "Smart Pick": sorted_procs = procs.sample(frac=1) if not procs.empty else procs
         else: sorted_procs = procs.sort_values(branch_col, ascending=False)
         
         found_for_strat = 0
@@ -303,7 +304,6 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
             if found_for_strat >= 3: break 
             res = assemble_bundle(available_df, sorted_procs.iloc[i], strat['label'], branch_col, usage_cat)
             if res:
-                # REVISI 6: Memastikan filter budget tidak terlalu ketat agar tampil 9
                 if (cat_min <= res['total'] <= cat_max) and (p_min_user <= res['total'] <= p_max_user):
                     results.append({"strategy": strat['label'], "badge_class": strat['class'], "parts": res['parts'], "total": res['total'], "missing": res['missing']})
                     found_for_strat += 1
@@ -322,13 +322,11 @@ if uploaded_file:
     raw_df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
     data = process_data(raw_df)
 
-    # REVISI 3 & 4: Tidak menampilkan jumlah kategori dan mapping di home
     st.sidebar.header("⚙️ Konfigurasi")
     sel_branch = st.sidebar.selectbox("Pilih Cabang:", list(BRANCH_MAP.keys()))
     b_col = BRANCH_MAP[sel_branch]
     u_cat = st.sidebar.radio("Kategori Penggunaan:", ["Office", "Gaming Standard", "Gaming Advanced"])
 
-    # REVISI 2: Filter harga diset sesuai range kategori
     st.sidebar.markdown("---")
     st.sidebar.subheader("💰 Filter Budget")
     p_min_user = st.sidebar.number_input("Min (Rp)", value=float(PRICE_THRESHOLDS[u_cat]['min']), step=500000.0)
@@ -352,7 +350,6 @@ if uploaded_file:
                             if res.get("missing"):
                                 missing_text = f"<div style='color:#e74c3c;font-size:11px;margin-top:6px;'>⚠ Missing: {', '.join(res['missing'])}</div>"
                             
-                            # REVISI 5: Fix tag </div> penutup
                             st.markdown(f"""
                             <div class="bundle-card">
                                 <div>
@@ -382,14 +379,13 @@ if uploaded_file:
         
         c_p, c_s = st.columns([2, 1])
         with c_p:
-            available_detail = data[data[b_col] > 0]
-            # REVISI 7 & 8: Tampilan Detail tanpa dropdown, ada penjelasan jika produk tidak muncul
+            # REVISI: Menggunakan seluruh data tanpa filter stock > 0
+            available_detail = data.copy() 
             for cat in DISPLAY_ORDER:
                 is_mandatory = cat in ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']
                 cur_p = upd.get('Processor')
                 cur_m = upd.get('Motherboard')
                 
-                # Logic penentu apakah kategori ini seharusnya ada
                 reason = ""
                 if cat == 'VGA' and cur_p is not None and cur_p['NeedVGA'] == 0:
                     reason = "Menggunakan Integrated Graphics (Tidak butuh VGA Card)"
@@ -402,7 +398,6 @@ if uploaded_file:
                 
                 if cat in upd:
                     item = upd[cat]
-                    # Row data: Nama | Edit | Hapus
                     c1, c2, c3 = st.columns([4, 1, 1])
                     with c1:
                         st.markdown(f"**{item['Nama Accurate']}**")
@@ -416,7 +411,6 @@ if uploaded_file:
                                 del upd[cat]
                                 st.rerun()
 
-                    # Dialog Ubah (Jika tombol ubah diklik)
                     if st.session_state.get(f"show_edit_{cat}", False):
                         cat_opts = available_detail[(available_detail['Kategori'] == cat) & (available_detail[u_cat] == True)]
                         if cat == 'Motherboard' and cur_p is not None:
@@ -436,14 +430,12 @@ if uploaded_file:
                             st.session_state[f"show_edit_{cat}"] = False
                             st.rerun()
                 else:
-                    # REVISI 8: Menampilkan alasan jika produk tidak ada
                     if reason: st.markdown(f"<p class='placeholder-text'>ℹ️ {reason}</p>", unsafe_allow_html=True)
-                    elif is_mandatory: st.warning(f"Produk {cat} tidak ditemukan di stok cabang ini.")
+                    elif is_mandatory: st.warning(f"Produk {cat} tidak ditemukan di database.")
                     else: st.markdown("<p class='placeholder-text'>Komponen opsional tidak ditambahkan.</p>", unsafe_allow_html=True)
                 st.markdown("---")
 
         with c_s:
-            # REVISI 9: Ringkasan Simple (Hanya Nama)
             st.markdown("### 📋 Ringkasan")
             for k, v in upd.items(): st.write(f"- {v['Nama Accurate']}")
             
