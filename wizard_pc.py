@@ -184,7 +184,7 @@ def process_data(df):
     
     # FILTER AWAL: Buang harga 0, 1 dan barang tanpa stok
     df = df[df['Web'] > 1].copy()
-    df = df[df['Stock Total'] > 0].copy()
+    df = df[df['Stock Total'] >= 0].copy()
     
     df['Nama Accurate'] = df['Nama Accurate'].fillna('').str.strip()
     df['Kategori'] = df['Kategori'].fillna('').str.strip()
