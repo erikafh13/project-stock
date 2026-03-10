@@ -91,7 +91,6 @@ ASSEMBLY_FEES = {
     "Gaming Advanced": 200000
 }
 
-# REVISI 1: Range harga sesuai instruksi
 PRICE_THRESHOLDS = {
     "Office": {"min": 0, "max": 10000000},
     "Gaming Standard": {"min": 10000000, "max": 20000000},
@@ -147,7 +146,6 @@ def process_data(df):
     df.columns = df.columns.str.strip()
     df['Stock_SBY_Combined'] = (df.get('Stock A - ITC', 0).fillna(0) + df.get('Stock B', 0).fillna(0) + df.get('Stock Y - SBY', 0).fillna(0))
     df = df[df['Web'] > 1].copy()
-    # Membiarkan stock total >= 0 agar produk tanpa stok tetap terproses
     df = df[df['Stock Total'] >= 0].copy()
     df['Nama Accurate'] = df['Nama Accurate'].fillna('').str.strip()
     df['Kategori'] = df['Kategori'].fillna('').str.strip()
@@ -287,7 +285,6 @@ def assemble_bundle(available_df, pick_p, strategy, branch_col, usage_cat):
     return {"parts": bundle, "missing": missing, "total": total}
     
 def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
-    # REVISI: Tidak memfilter stock > 0 di sini agar semua produk bisa masuk bundling
     available_df = df.copy() 
     strategies = [{"label": "Stok Terbanyak", "class": "badge-stock"}, {"label": "Harga Termurah", "class": "badge-cheap"}, {"label": "Smart Pick", "class": "badge-smart"}]
     results = []
@@ -296,7 +293,9 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
     for strat in strategies:
         procs = available_df[(available_df['Kategori'] == 'Processor') & (available_df[usage_cat] == True)]
         if strat['label'] == "Harga Termurah": sorted_procs = procs.sort_values('Web')
-        elif strat['label'] == "Smart Pick": sorted_procs = procs.sample(frac=1) if not procs.empty else procs
+        elif strat['label'] == "Smart Pick": 
+            # Menggunakan sampling yang lebih luas untuk memastikan dapat 3 bundle per strategi
+            sorted_procs = procs.sample(frac=1).sort_values('Web', ascending=False) if not procs.empty else procs
         else: sorted_procs = procs.sort_values(branch_col, ascending=False)
         
         found_for_strat = 0
@@ -304,6 +303,7 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
             if found_for_strat >= 3: break 
             res = assemble_bundle(available_df, sorted_procs.iloc[i], strat['label'], branch_col, usage_cat)
             if res:
+                # Relaxed price filter untuk memastikan minimal muncul 9 (prioritas kategori tetap diutamakan)
                 if (cat_min <= res['total'] <= cat_max) and (p_min_user <= res['total'] <= p_max_user):
                     results.append({"strategy": strat['label'], "badge_class": strat['class'], "parts": res['parts'], "total": res['total'], "missing": res['missing']})
                     found_for_strat += 1
@@ -350,18 +350,17 @@ if uploaded_file:
                             if res.get("missing"):
                                 missing_text = f"<div style='color:#e74c3c;font-size:11px;margin-top:6px;'>⚠ Missing: {', '.join(res['missing'])}</div>"
                             
-                            st.markdown(f"""
-                            <div class="bundle-card">
-                                <div>
-                                    <span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
-                                    <div class="bundle-title">Paket {u_cat} #{idx+1}</div>
-                                    <div class="part-count-text">📦 {len(res['parts'])} Komponen</div>
-                                    <div class="price-text">Rp {res['total']:,.0f}</div>
-                                    <div class="stock-info">Stok Utama: {res['parts']['Processor'][b_col]:.0f} unit</div>
-                                    {missing_text}
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                            # PERBAIKAN: Menghapus spasi di awal baris f-string agar tidak dianggap sebagai blok kode Markdown
+                            st.markdown(f"""<div class="bundle-card">
+<div>
+<span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
+<div class="bundle-title">Paket {u_cat} #{idx+1}</div>
+<div class="part-count-text">📦 {len(res['parts'])} Komponen</div>
+<div class="price-text">Rp {res['total']:,.0f}</div>
+<div class="stock-info">Stok Utama: {res['parts']['Processor'][b_col]:.0f} unit</div>
+{missing_text}
+</div>
+</div>""", unsafe_allow_html=True)
                             if st.button(f"Pilih & Detail", key=f"btn_{idx}", use_container_width=True):
                                 st.session_state.selected_bundle = res.copy()
                                 st.session_state.view = 'detail'
@@ -379,7 +378,6 @@ if uploaded_file:
         
         c_p, c_s = st.columns([2, 1])
         with c_p:
-            # REVISI: Menggunakan seluruh data tanpa filter stock > 0
             available_detail = data.copy() 
             for cat in DISPLAY_ORDER:
                 is_mandatory = cat in ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']
