@@ -176,9 +176,16 @@ def process_data(df):
             if 'TRAY' in name or 'NO FAN' in name: df.at[idx, 'NeedCooler'] = 1
             info = get_cpu_info(name)
             df.at[idx, 'CPU_Gen'], df.at[idx, 'CPU_Socket'] = info['gen'], info['socket']
+            
+            # Office: i3 / i5
             if 'I3' in name or 'I5' in name: df.at[idx, 'Office'] = True
+            
+            # Gaming Standard: i3 / i5 (biasanya butuh VGA diskrit jika suffix F)
             if ('I3' in name or 'I5' in name) and is_f: df.at[idx, 'Gaming Standard'] = True
-            if (any(x in name for x in ['I7', 'I9', 'ULTRA']) and is_f) or ('RYZEN 7' in name or 'RYZEN 9' in name): df.at[idx, 'Gaming Advanced'] = True
+            
+            # Gaming Advanced: i7 / i9 / Ultra atau Ryzen 7 / 9 (Suffix F tidak wajib)
+            if (any(x in name for x in ['I7', 'I9', 'ULTRA'])) or ('RYZEN 7' in name or 'RYZEN 9' in name): 
+                df.at[idx, 'Gaming Advanced'] = True
 
         elif cat == 'Motherboard':
             series_list = ['H410','H510','H610','H810','B660','B760','B860','Z790','Z890','A520','A620','B450','B550','B650','B840','B850','X870']
@@ -205,12 +212,16 @@ def process_data(df):
         elif cat == 'SSD Internal':
             if 'WDS120G2G0B' in name: continue 
             df.loc[idx, ['Office', 'Gaming Standard']] = True
-            if 'M.2 NVMe' in name: df.at[idx, 'Gaming Advanced'] = True
+            if 'NVME' in name: df.at[idx, 'Gaming Advanced'] = True
 
         elif cat == 'VGA':
-            if any(x in name for x in ['GT710', 'GT730']): df.at[idx, 'Office'] = True
-            elif any(x in name for x in ['GT1030', 'GTX1650', 'RTX3050', 'RTX3060', 'RTX5050', 'RTX4060']): df.at[idx, 'Gaming Standard'] = True
-            elif any(x in name for x in ['RTX5060', 'RTX5060TI', 'RTX5070', 'RTX5070TI', 'RTX5080', 'RTX5090']): df.at[idx, 'Gaming Advanced'] = True
+            if any(x in name for x in ['GT710', 'GT730']): 
+                df.at[idx, 'Office'] = True
+            elif any(x in name for x in ['GT1030', 'GTX1650', 'RTX3050', 'RTX3060', 'RTX5050', 'RTX4060']): 
+                df.at[idx, 'Gaming Standard'] = True
+            # Gaming Advanced mencakup seri 3070+, 4070+, dan 50-series
+            elif any(x in name for x in ['3070', '3080', '3090', '4070', '4080', '4090', 'RTX50']): 
+                df.at[idx, 'Gaming Advanced'] = True
 
         elif cat == 'Casing PC':
             if 'ARMAGGEDDON' in name: continue
@@ -294,7 +305,6 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
         procs = available_df[(available_df['Kategori'] == 'Processor') & (available_df[usage_cat] == True)]
         if strat['label'] == "Harga Termurah": sorted_procs = procs.sort_values('Web')
         elif strat['label'] == "Smart Pick": 
-            # Menggunakan sampling yang lebih luas untuk memastikan dapat 3 bundle per strategi
             sorted_procs = procs.sample(frac=1).sort_values('Web', ascending=False) if not procs.empty else procs
         else: sorted_procs = procs.sort_values(branch_col, ascending=False)
         
@@ -303,7 +313,6 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
             if found_for_strat >= 3: break 
             res = assemble_bundle(available_df, sorted_procs.iloc[i], strat['label'], branch_col, usage_cat)
             if res:
-                # Relaxed price filter untuk memastikan minimal muncul 9 (prioritas kategori tetap diutamakan)
                 if (cat_min <= res['total'] <= cat_max) and (p_min_user <= res['total'] <= p_max_user):
                     results.append({"strategy": strat['label'], "badge_class": strat['class'], "parts": res['parts'], "total": res['total'], "missing": res['missing']})
                     found_for_strat += 1
@@ -350,7 +359,6 @@ if uploaded_file:
                             if res.get("missing"):
                                 missing_text = f"<div style='color:#e74c3c;font-size:11px;margin-top:6px;'>⚠ Missing: {', '.join(res['missing'])}</div>"
                             
-                            # PERBAIKAN: Menghapus spasi di awal baris f-string agar tidak dianggap sebagai blok kode Markdown
                             st.markdown(f"""<div class="bundle-card">
 <div>
 <span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
