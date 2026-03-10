@@ -62,15 +62,18 @@ st.markdown("""
     }
     .stMarkdown { line-height: 1.2 !important; }
     
-    /* Styling for Detail View */
     .product-row {
-        padding: 10px 0;
-        border-bottom: 1px solid #eee;
+        padding: 12px;
+        border: 1px solid #eee;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background-color: #f9f9f9;
     }
     .placeholder-text {
         color: #95a5a6;
         font-style: italic;
-        font-size: 14px;
+        font-size: 13px;
+        padding: 5px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -91,6 +94,7 @@ ASSEMBLY_FEES = {
     "Gaming Advanced": 200000
 }
 
+# REVISI 1 & 2: Range harga kategori dan filter budget
 PRICE_THRESHOLDS = {
     "Office": {"min": 0, "max": 10000000},
     "Gaming Standard": {"min": 10000000, "max": 20000000},
@@ -144,9 +148,10 @@ def is_compatible(cpu_row, mobo_row):
 
 def process_data(df):
     df.columns = df.columns.str.strip()
+    # Sesuai file CSV: ITC + B + Y = Surabaya
     df['Stock_SBY_Combined'] = (df.get('Stock A - ITC', 0).fillna(0) + df.get('Stock B', 0).fillna(0) + df.get('Stock Y - SBY', 0).fillna(0))
     df = df[df['Web'] > 1].copy()
-    df = df[df['Stock Total'] >= 0].copy()
+    # REVISI: Tetap memproses data tanpa filter stock awal agar produk 0 stok bisa muncul di list manual
     df['Nama Accurate'] = df['Nama Accurate'].fillna('').str.strip()
     df['Kategori'] = df['Kategori'].fillna('').str.strip()
     df['Web'] = pd.to_numeric(df['Web'], errors='coerce').fillna(0)
@@ -177,13 +182,9 @@ def process_data(df):
             info = get_cpu_info(name)
             df.at[idx, 'CPU_Gen'], df.at[idx, 'CPU_Socket'] = info['gen'], info['socket']
             
-            # Office: i3 / i5
             if 'I3' in name or 'I5' in name: df.at[idx, 'Office'] = True
-            
-            # Gaming Standard: i3 / i5 (biasanya butuh VGA diskrit jika suffix F)
             if ('I3' in name or 'I5' in name) and is_f: df.at[idx, 'Gaming Standard'] = True
-            
-            # Gaming Advanced: i7 / i9 / Ultra atau Ryzen 7 / 9 (Suffix F tidak wajib)
+            # REVISI: Gaming Advanced lebih luas
             if (any(x in name for x in ['I7', 'I9', 'ULTRA'])) or ('RYZEN 7' in name or 'RYZEN 9' in name): 
                 df.at[idx, 'Gaming Advanced'] = True
 
@@ -215,13 +216,9 @@ def process_data(df):
             if 'NVME' in name: df.at[idx, 'Gaming Advanced'] = True
 
         elif cat == 'VGA':
-            if any(x in name for x in ['GT710', 'GT730']): 
-                df.at[idx, 'Office'] = True
-            elif any(x in name for x in ['GT1030', 'GTX1650', 'RTX3050', 'RTX3060', 'RTX5050', 'RTX4060']): 
-                df.at[idx, 'Gaming Standard'] = True
-            # Gaming Advanced mencakup seri 3070+, 4070+, dan 50-series
-            elif any(x in name for x in ['3070', '3080', '3090', '4070', '4080', '4090', 'RTX50']): 
-                df.at[idx, 'Gaming Advanced'] = True
+            if any(x in name for x in ['GT710', 'GT730']): df.at[idx, 'Office'] = True
+            elif any(x in name for x in ['GT1030', 'GTX1650', 'RTX3050', 'RTX3060', 'RTX5050', 'RTX4060']): df.at[idx, 'Gaming Standard'] = True
+            elif any(x in name for x in ['3070', '3080', '3090', '4070', '4080', '4090', 'RTX50']): df.at[idx, 'Gaming Advanced'] = True
 
         elif cat == 'Casing PC':
             if 'ARMAGGEDDON' in name: continue
@@ -262,40 +259,49 @@ def assemble_bundle(available_df, pick_p, strategy, branch_col, usage_cat):
         items = available_df[(available_df['Kategori'] == category) & (available_df[usage_cat] == True)]
         if filter_func: items = items[items.apply(filter_func, axis=1)]
         return pick_component(items, strategy, branch_col)
+        
     mobo = get_part('Motherboard', lambda m: is_compatible(pick_p, m))
     if mobo is not None:
         bundle['Motherboard'], total = mobo, total + mobo['Web']
     else: missing.append('Motherboard')
+    
     ram = get_part('Memory RAM', lambda r: r.get('DDR_Type') == (mobo.get('DDR_Type') if mobo is not None else None))
     if ram is not None:
         bundle['Memory RAM'], total = ram, total + ram['Web']
     else: missing.append('Memory RAM')
+    
     ssd = get_part('SSD Internal')
     if ssd is not None:
         bundle['SSD Internal'], total = ssd, total + ssd['Web']
     else: missing.append('SSD Internal')
+    
     if pick_p['NeedVGA'] == 1:
         vga = get_part('VGA')
         if vga is not None:
             bundle['VGA'], total = vga, total + vga['Web']
         else: missing.append('VGA')
+        
     case = get_part('Casing PC')
     if case is not None:
         bundle['Casing PC'], total = case, total + case['Web']
     else: missing.append('Casing PC')
+    
     if case is not None and case.get('HasPSU',0) == 0:
         psu = get_part('Power Supply')
         if psu is not None:
             bundle['Power Supply'], total = psu, total + psu['Web']
         else: missing.append('Power Supply')
+        
     if pick_p['NeedCooler'] == 1:
         cooler = get_part('CPU Cooler')
         if cooler is not None:
             bundle['CPU Cooler'], total = cooler, total + cooler['Web']
         else: missing.append('CPU Cooler')
+        
     return {"parts": bundle, "missing": missing, "total": total}
     
 def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
+    # REVISI 10: Satu produk bisa masuk ke banyak kartu
     available_df = df.copy() 
     strategies = [{"label": "Stok Terbanyak", "class": "badge-stock"}, {"label": "Harga Termurah", "class": "badge-cheap"}, {"label": "Smart Pick", "class": "badge-smart"}]
     results = []
@@ -304,8 +310,7 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
     for strat in strategies:
         procs = available_df[(available_df['Kategori'] == 'Processor') & (available_df[usage_cat] == True)]
         if strat['label'] == "Harga Termurah": sorted_procs = procs.sort_values('Web')
-        elif strat['label'] == "Smart Pick": 
-            sorted_procs = procs.sample(frac=1).sort_values('Web', ascending=False) if not procs.empty else procs
+        elif strat['label'] == "Smart Pick": sorted_procs = procs.sample(frac=1) if not procs.empty else procs
         else: sorted_procs = procs.sort_values(branch_col, ascending=False)
         
         found_for_strat = 0
@@ -313,6 +318,7 @@ def generate_9_bundles(df, branch_col, usage_cat, p_min_user, p_max_user):
             if found_for_strat >= 3: break 
             res = assemble_bundle(available_df, sorted_procs.iloc[i], strat['label'], branch_col, usage_cat)
             if res:
+                # REVISI 6: Memastikan range harga kategori Advanced dkk terakomodasi
                 if (cat_min <= res['total'] <= cat_max) and (p_min_user <= res['total'] <= p_max_user):
                     results.append({"strategy": strat['label'], "badge_class": strat['class'], "parts": res['parts'], "total": res['total'], "missing": res['missing']})
                     found_for_strat += 1
@@ -346,7 +352,7 @@ if uploaded_file:
         all_res = generate_9_bundles(data, b_col, u_cat, p_min_user, p_max_user)
         
         if not all_res:
-            st.warning(f"Tidak ada paket {u_cat} yang ditemukan. Coba luaskan filter budget.")
+            st.warning(f"Tidak ada paket {u_cat} yang ditemukan sesuai budget. Coba naikkan limit atau cek cabang lain.")
         else:
             for i in range(0, len(all_res), 3):
                 cols = st.columns(3)
@@ -359,7 +365,8 @@ if uploaded_file:
                             if res.get("missing"):
                                 missing_text = f"<div style='color:#e74c3c;font-size:11px;margin-top:6px;'>⚠ Missing: {', '.join(res['missing'])}</div>"
                             
-                            st.markdown(f"""<div class="bundle-card">
+                            # REVISI 5: Fix tag penutup HTML dan perataan Markdown
+                            card_html = f"""<div class="bundle-card">
 <div>
 <span class="badge-strategy {res['badge_class']}">{res['strategy']}</span>
 <div class="bundle-title">Paket {u_cat} #{idx+1}</div>
@@ -368,8 +375,9 @@ if uploaded_file:
 <div class="stock-info">Stok Utama: {res['parts']['Processor'][b_col]:.0f} unit</div>
 {missing_text}
 </div>
-</div>""", unsafe_allow_html=True)
-                            if st.button(f"Pilih & Detail", key=f"btn_{idx}", use_container_width=True):
+</div>"""
+                            st.markdown(card_html, unsafe_allow_html=True)
+                            if st.button(f"Pilih & Detail Paket #{idx+1}", key=f"btn_{idx}", use_container_width=True):
                                 st.session_state.selected_bundle = res.copy()
                                 st.session_state.view = 'detail'
                                 if 'temp_parts' in st.session_state: del st.session_state.temp_parts
@@ -388,9 +396,9 @@ if uploaded_file:
         with c_p:
             available_detail = data.copy() 
             for cat in DISPLAY_ORDER:
-                is_mandatory = cat in ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']
                 cur_p = upd.get('Processor')
                 cur_m = upd.get('Motherboard')
+                is_mandatory = cat in ['Processor', 'Motherboard', 'Memory RAM', 'SSD Internal', 'Casing PC']
                 
                 reason = ""
                 if cat == 'VGA' and cur_p is not None and cur_p['NeedVGA'] == 0:
@@ -398,25 +406,27 @@ if uploaded_file:
                 elif cat == 'CPU Cooler' and cur_p is not None and cur_p['NeedCooler'] == 0:
                     reason = "Sudah termasuk Cooler bawaan Processor"
                 elif cat == 'Power Supply' and upd.get('Casing PC', {}).get('HasPSU', 0) == 1:
-                    reason = "PSU sudah termasuk dalam paket Casing"
+                    reason = "PSU sudah termasuk dalam paket Casing (PSU Included)"
                 
                 st.markdown(f"#### {cat}")
                 
                 if cat in upd:
                     item = upd[cat]
-                    c1, c2, c3 = st.columns([4, 1, 1])
-                    with c1:
-                        st.markdown(f"**{item['Nama Accurate']}**")
-                        st.markdown(f"<span class='stock-info'>Stok: {item[b_col]:.0f} unit | Harga: Rp {item['Web']:,.0f}</span>", unsafe_allow_html=True)
-                    with c2:
-                        if st.button("🔄 Ubah", key=f"edit_{cat}"):
-                            st.session_state[f"show_edit_{cat}"] = True
-                    with c3:
-                        if not is_mandatory:
-                            if st.button("🗑️ Hapus", key=f"del_{cat}"):
-                                del upd[cat]
-                                st.rerun()
-
+                    # REVISI 7: Tampilan list langsung tanpa dropdown
+                    with st.container():
+                        col_info, col_act = st.columns([4, 2])
+                        with col_info:
+                            st.markdown(f"**{item['Nama Accurate']}**")
+                            st.markdown(f"<span class='stock-info'>Stok: {item[b_col]:.0f} | Harga: Rp {item['Web']:,.0f}</span>", unsafe_allow_html=True)
+                        with col_act:
+                            act1, act2 = st.columns(2)
+                            if act1.button("🔄 Ubah", key=f"edit_{cat}"):
+                                st.session_state[f"show_edit_{cat}"] = True
+                            if not is_mandatory:
+                                if act2.button("🗑️ Hapus", key=f"del_{cat}"):
+                                    del upd[cat]
+                                    st.rerun()
+                    
                     if st.session_state.get(f"show_edit_{cat}", False):
                         cat_opts = available_detail[(available_detail['Kategori'] == cat) & (available_detail[u_cat] == True)]
                         if cat == 'Motherboard' and cur_p is not None:
@@ -436,14 +446,17 @@ if uploaded_file:
                             st.session_state[f"show_edit_{cat}"] = False
                             st.rerun()
                 else:
-                    if reason: st.markdown(f"<p class='placeholder-text'>ℹ️ {reason}</p>", unsafe_allow_html=True)
-                    elif is_mandatory: st.warning(f"Produk {cat} tidak ditemukan di database.")
-                    else: st.markdown("<p class='placeholder-text'>Komponen opsional tidak ditambahkan.</p>", unsafe_allow_html=True)
+                    # REVISI 8: Tampilkan alasan jika kategori kosong
+                    if reason: st.markdown(f"<div class='placeholder-text'>ℹ️ {reason}</div>", unsafe_allow_html=True)
+                    elif is_mandatory: st.warning(f"Komponen {cat} belum terpilih atau tidak ada di database.")
+                    else: st.markdown("<div class='placeholder-text'>Komponen opsional tidak digunakan.</div>", unsafe_allow_html=True)
                 st.markdown("---")
 
         with c_s:
+            # REVISI 9: Ringkasan Simple (Hanya Nama)
             st.markdown("### 📋 Ringkasan")
-            for k, v in upd.items(): st.write(f"- {v['Nama Accurate']}")
+            for k, v in upd.items():
+                st.markdown(f"**{k}**: {v['Nama Accurate']}")
             
             st.divider()
             current_total = sum(x['Web'] for x in upd.values())
@@ -451,6 +464,8 @@ if uploaded_file:
             rakit = st.checkbox(f"Biaya Rakit (Rp {rakit_fee:,.0f})", value=True)
             grand_total = current_total + (rakit_fee if rakit else 0)
             st.subheader(f"Total: Rp {grand_total:,.0f}")
-            if st.button("✅ Konfirmasi", use_container_width=True, type="primary"): st.balloons()
+            if st.button("✅ Konfirmasi Pemesanan", use_container_width=True, type="primary"): 
+                st.success("Konfigurasi berhasil dikonfirmasi!")
+                st.balloons()
 else:
-    st.info("👋 Silakan upload file Data Portal untuk memulai sistem bundling pintar.")
+    st.info("👋 Silakan upload file Data Portal (CSV/XLSX) untuk memulai.")
